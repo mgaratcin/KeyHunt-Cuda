@@ -1,679 +1,900 @@
 /*
-* This file is part of the BTCCollider distribution (https://github.com/JeanLucPons/Kangaroo).
-* Copyright (c) 2020 Jean Luc PONS.
-*
-* This program is free software: you can redistribute it and/or modify
-* it under the terms of the GNU General Public License as published by
-* the Free Software Foundation, version 3.
-*
-* This program is distributed in the hope that it will be useful, but
-* WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-* General Public License for more details.
-*
-* You should have received a copy of the GNU General Public License
-* along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * This file is part of the VanitySearch distribution (https://github.com/JeanLucPons/VanitySearch).
+ * Copyright (c) 2019 Jean Luc PONS.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, version 3.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
-
-#ifndef WIN64
-#include <unistd.h>
-#include <stdio.h>
-#endif
 
 #include "GPUEngine.h"
 #include <cuda.h>
 #include <cuda_runtime.h>
+#include <device_launch_parameters.h>
 
 #include <stdint.h>
+#include "../hash/sha256.h"
+#include "../hash/ripemd160.h"
 #include "../Timer.h"
 
 #include "GPUMath.h"
+#include "GPUHash.h"
+#include "GPUBase58.h"
 #include "GPUCompute.h"
 
 // ---------------------------------------------------------------------------------------
+#define CudaSafeCall( err ) __cudaSafeCall( err, __FILE__, __LINE__ )
 
-__global__ void comp_kangaroos(uint64_t *kangaroos,uint32_t maxFound,uint32_t *found,uint64_t dpMask) {
+inline void __cudaSafeCall(cudaError err, const char* file, const int line)
+{
+	if (cudaSuccess != err)
+	{
+		fprintf(stderr, "cudaSafeCall() failed at %s:%i : %s\n", file, line, cudaGetErrorString(err));
+		exit(-1);
+	}
+	return;
+}
 
-  int xPtr = (blockIdx.x*blockDim.x*GPU_GRP_SIZE) * KSIZE; // x[4] , y[4] , d[2], lastJump
-  ComputeKangaroos(kangaroos + xPtr,maxFound,found,dpMask);
+// ---------------------------------------------------------------------------------------
+
+// mode multiple addresses
+__global__ void compute_keys_mode_ma(uint32_t mode, uint8_t* bloomLookUp, int BLOOM_BITS, uint8_t BLOOM_HASHES,
+	uint64_t* keys, uint32_t maxFound, uint32_t* found)
+{
+
+	int xPtr = (blockIdx.x * blockDim.x) * 8;
+	int yPtr = xPtr + 4 * blockDim.x;
+	ComputeKeysSEARCH_MODE_MA(mode, keys + xPtr, keys + yPtr, bloomLookUp, BLOOM_BITS, BLOOM_HASHES, maxFound, found);
+
+}
+
+__global__ void compute_keys_comp_mode_ma(uint32_t mode, uint8_t* bloomLookUp, int BLOOM_BITS, uint8_t BLOOM_HASHES, uint64_t* keys,
+	uint32_t maxFound, uint32_t* found)
+{
+
+	int xPtr = (blockIdx.x * blockDim.x) * 8;
+	int yPtr = xPtr + 4 * blockDim.x;
+	ComputeKeysSEARCH_MODE_MA(mode, keys + xPtr, keys + yPtr, bloomLookUp, BLOOM_BITS, BLOOM_HASHES, maxFound, found);
+
+}
+
+// mode single address
+__global__ void compute_keys_mode_sa(uint32_t mode, uint32_t* hash160, uint64_t* keys, uint32_t maxFound, uint32_t* found)
+{
+
+	int xPtr = (blockIdx.x * blockDim.x) * 8;
+	int yPtr = xPtr + 4 * blockDim.x;
+	ComputeKeysSEARCH_MODE_SA(mode, keys + xPtr, keys + yPtr, hash160, maxFound, found);
+
+}
+
+__global__ void compute_keys_comp_mode_sa(uint32_t mode, uint32_t* hash160, uint64_t* keys, uint32_t maxFound, uint32_t* found)
+{
+
+	int xPtr = (blockIdx.x * blockDim.x) * 8;
+	int yPtr = xPtr + 4 * blockDim.x;
+	ComputeKeysSEARCH_MODE_SA(mode, keys + xPtr, keys + yPtr, hash160, maxFound, found);
+
+}
+
+// mode multiple x points
+__global__ void compute_keys_comp_mode_mx(uint32_t mode, uint8_t* bloomLookUp, int BLOOM_BITS, uint8_t BLOOM_HASHES, uint64_t* keys,
+	uint32_t maxFound, uint32_t* found)
+{
+
+	int xPtr = (blockIdx.x * blockDim.x) * 8;
+	int yPtr = xPtr + 4 * blockDim.x;
+	ComputeKeysSEARCH_MODE_MX(mode, keys + xPtr, keys + yPtr, bloomLookUp, BLOOM_BITS, BLOOM_HASHES, maxFound, found);
+
+}
+
+// mode single x point
+__global__ void compute_keys_comp_mode_sx(uint32_t mode, uint32_t* xpoint, uint64_t* keys, uint32_t maxFound, uint32_t* found)
+{
+
+	int xPtr = (blockIdx.x * blockDim.x) * 8;
+	int yPtr = xPtr + 4 * blockDim.x;
+	ComputeKeysSEARCH_MODE_SX(mode, keys + xPtr, keys + yPtr, xpoint, maxFound, found);
 
 }
 
 // ---------------------------------------------------------------------------------------
-//#define GPU_CHECK
-#ifdef GPU_CHECK
-__global__ void check_gpu() {
+// ethereum
 
-  // Check ModInv
-  uint64_t N[5] = { 0x0BE3D7593BE1147CULL,0x4952AAF512875655ULL,0x08884CCAACCB9B53ULL,0x9EAE2E2225044292ULL,0ULL };
-  uint64_t I[5];
-  uint64_t R[5];
-  bool ok = true;
+__global__ void compute_keys_mode_eth_ma(uint8_t* bloomLookUp, int BLOOM_BITS, uint8_t BLOOM_HASHES, uint64_t* keys,
+	uint32_t maxFound, uint32_t* found)
+{
 
-  /*
-  for(uint64_t i=0;i<10000 && ok;i++) {
-
-    Load(R,N);
-    _ModInv(R);
-    Load(I,R);
-    _ModMult(R,N);
-    SubP(R);
-    if(!_IsOne(R)) {
-      ok = false;
-      printf("ModInv wrong %d\n",(int)i);
-      printf("N = %016llx %016llx %016llx %016llx %016llx\n",N[4],N[3],N[2],N[1],N[0]);
-      printf("I = %016llx %016llx %016llx %016llx %016llx\n",I[4],I[3],I[2],I[1],I[0]);
-      printf("R = %016llx %016llx %016llx %016llx %016llx\n",R[4],R[3],R[2],R[1],R[0]);
-    }
-
-    N[0]++;
-
-  }
-  */
-  I[4] = 0;
-  R[4] = 0;
-  for(uint64_t i = 0; i < 100000 && ok; i++) {
-
-    _ModSqr(I,N);
-    _ModMult(R,N,N);
-    if(!_IsEqual(I,R)) {
-      ok = false;
-      printf("_ModSqr wrong %d\n",(int)i);
-      printf("N = %016llx %016llx %016llx %016llx %016llx\n",N[4],N[3],N[2],N[1],N[0]);
-      printf("I = %016llx %016llx %016llx %016llx %016llx\n",I[4],I[3],I[2],I[1],I[0]);
-      printf("R = %016llx %016llx %016llx %016llx %016llx\n",R[4],R[3],R[2],R[1],R[0]);
-    }
-
-    N[0]++;
-
-  }
+	int xPtr = (blockIdx.x * blockDim.x) * 8;
+	int yPtr = xPtr + 4 * blockDim.x;
+	ComputeKeysSEARCH_ETH_MODE_MA(keys + xPtr, keys + yPtr, bloomLookUp, BLOOM_BITS, BLOOM_HASHES, maxFound, found);
 
 }
-#endif
+
+__global__ void compute_keys_mode_eth_sa(uint32_t* hash, uint64_t* keys, uint32_t maxFound, uint32_t* found)
+{
+
+	int xPtr = (blockIdx.x * blockDim.x) * 8;
+	int yPtr = xPtr + 4 * blockDim.x;
+	ComputeKeysSEARCH_ETH_MODE_SA(keys + xPtr, keys + yPtr, hash, maxFound, found);
+
+}
 
 // ---------------------------------------------------------------------------------------
 
 using namespace std;
 
-int _ConvertSMVer2Cores(int major,int minor) {
+int _ConvertSMVer2Cores(int major, int minor)
+{
 
-  // Defines for GPU Architecture types (using the SM version to determine
-  // the # of cores per SM
-  typedef struct {
-    int SM;  // 0xMm (hexidecimal notation), M = SM Major version,
-             // and m = SM minor version
-    int Cores;
-  } sSMtoCores;
+	// Defines for GPU Architecture types (using the SM version to determine
+	// the # of cores per SM
+	typedef struct {
+		int SM;  // 0xMm (hexidecimal notation), M = SM Major version,
+		// and m = SM minor version
+		int Cores;
+	} sSMtoCores;
 
-  sSMtoCores nGpuArchCoresPerSM[] = {
-    { 0x20, 32 }, // Fermi Generation (SM 2.0) GF100 class
-    { 0x21, 48 }, // Fermi Generation (SM 2.1) GF10x class
-    { 0x30, 192 },
-    { 0x32, 192 },
-    { 0x35, 192 },
-    { 0x37, 192 },
-    { 0x50, 128 },
-    { 0x52, 128 },
-    { 0x53, 128 },
-    { 0x60,  64 },
-    { 0x61, 128 },
-    { 0x62, 128 },
-    { 0x70,  64 },
-    { 0x72,  64 },
-    { 0x75,  64 },
-    { -1, -1 } };
+	sSMtoCores nGpuArchCoresPerSM[] = {
+		{0x20, 32}, // Fermi Generation (SM 2.0) GF100 class
+		{0x21, 48}, // Fermi Generation (SM 2.1) GF10x class
+		{0x30, 192},
+		{0x32, 192},
+		{0x35, 192},
+		{0x37, 192},
+		{0x50, 128},
+		{0x52, 128},
+		{0x53, 128},
+		{0x60,  64},
+		{0x61, 128},
+		{0x62, 128},
+		{0x70,  64},
+		{0x72,  64},
+		{0x75,  64},
+		{0x80,  64},
+		{0x86, 128},
+		{-1, -1}
+	};
 
-  int index = 0;
+	int index = 0;
 
-  while(nGpuArchCoresPerSM[index].SM != -1) {
-    if(nGpuArchCoresPerSM[index].SM == ((major << 4) + minor)) {
-      return nGpuArchCoresPerSM[index].Cores;
-    }
+	while (nGpuArchCoresPerSM[index].SM != -1) {
+		if (nGpuArchCoresPerSM[index].SM == ((major << 4) + minor)) {
+			return nGpuArchCoresPerSM[index].Cores;
+		}
 
-    index++;
-  }
+		index++;
+	}
 
-  return 0;
-
-}
-
-void GPUEngine::SetWildOffset(Int* offset) {
-  wildOffset.Set(offset);
-}
-
-GPUEngine::GPUEngine(int nbThreadGroup,int nbThreadPerGroup,int gpuId,uint32_t maxFound) {
-
-  // Initialise CUDA
-  this->nbThreadPerGroup = nbThreadPerGroup;
-  initialised = false;
-  cudaError_t err;
-
-  int deviceCount = 0;
-  cudaError_t error_id = cudaGetDeviceCount(&deviceCount);
-
-  if(error_id != cudaSuccess) {
-    printf("GPUEngine: CudaGetDeviceCount %s\n",cudaGetErrorString(error_id));
-    return;
-  }
-
-  // This function call returns 0 if there are no CUDA capable devices.
-  if(deviceCount == 0) {
-    printf("GPUEngine: There are no available device(s) that support CUDA\n");
-    return;
-  }
-
-  err = cudaSetDevice(gpuId);
-  if(err != cudaSuccess) {
-    printf("GPUEngine: %s\n",cudaGetErrorString(err));
-    return;
-  }
-
-  cudaDeviceProp deviceProp;
-  cudaGetDeviceProperties(&deviceProp,gpuId);
-
-  this->nbThread = nbThreadGroup * nbThreadPerGroup;
-  this->maxFound = maxFound;
-  this->outputSize = (maxFound*ITEM_SIZE + 4);
-
-  char tmp[512];
-  sprintf(tmp,"GPU #%d %s (%dx%d cores) Grid(%dx%d)",
-    gpuId,deviceProp.name,deviceProp.multiProcessorCount,
-    _ConvertSMVer2Cores(deviceProp.major,deviceProp.minor),
-    nbThread / nbThreadPerGroup,
-    nbThreadPerGroup);
-  deviceName = std::string(tmp);
-
-  // Prefer L1 (We do not use __shared__ at all)
-  err = cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
-  if(err != cudaSuccess) {
-    printf("GPUEngine: %s\n",cudaGetErrorString(err));
-    return;
-  }
-
-  // Allocate memory
-  inputKangaroo = NULL;
-  inputKangarooPinned = NULL;
-  outputItem = NULL;
-  outputItemPinned = NULL;
-  jumpPinned = NULL;
-
-  // Input kangaroos
-  kangarooSize = nbThread * GPU_GRP_SIZE * KSIZE * 8;
-  err = cudaMalloc((void **)&inputKangaroo,kangarooSize);
-  if(err != cudaSuccess) {
-    printf("GPUEngine: Allocate input memory: %s\n",cudaGetErrorString(err));
-    return;
-  }
-  kangarooSizePinned = nbThreadPerGroup * GPU_GRP_SIZE *  KSIZE * 8;
-  err = cudaHostAlloc(&inputKangarooPinned,kangarooSizePinned,cudaHostAllocWriteCombined | cudaHostAllocMapped);
-  if(err != cudaSuccess) {
-    printf("GPUEngine: Allocate input pinned memory: %s\n",cudaGetErrorString(err));
-    return;
-  }
-
-  // OutputHash
-  err = cudaMalloc((void **)&outputItem,outputSize);
-  if(err != cudaSuccess) {
-    printf("GPUEngine: Allocate output memory: %s\n",cudaGetErrorString(err));
-    return;
-  }
-  err = cudaHostAlloc(&outputItemPinned,outputSize,cudaHostAllocMapped);
-  if(err != cudaSuccess) {
-    printf("GPUEngine: Allocate output pinned memory: %s\n",cudaGetErrorString(err));
-    return;
-  }
-
-  // Jump array
-  jumpSize = NB_JUMP * 8 * 4;
-  err = cudaHostAlloc(&jumpPinned,jumpSize,cudaHostAllocMapped);
-  if(err != cudaSuccess) {
-    printf("GPUEngine: Allocate jump pinned memory: %s\n",cudaGetErrorString(err));
-    return;
-  }
-
-  lostWarning = false;
-  initialised = true;
-  wildOffset.SetInt32(0);
-
-#ifdef GPU_CHECK
-
-  double minT = 1e9;
-  for(int i=0;i<5;i++) {
-    double t0 = Timer::get_tick();
-    check_gpu<<<1,1>>>();
-    cudaThreadSynchronize();
-    double t1 = Timer::get_tick();
-    if( (t1-t0)<minT ) minT = (t1-t0);
-  }
-  printf("Cuda: %.3f ms\n",minT*1000.0);
-  exit(0);
-
-#endif
+	return 0;
 
 }
 
-GPUEngine::~GPUEngine() {
+// ----------------------------------------------------------------------------
 
-  if(inputKangaroo) cudaFree(inputKangaroo);
-  if(outputItem) cudaFree(outputItem);
-  if(inputKangarooPinned) cudaFreeHost(inputKangarooPinned);
-  if(outputItemPinned) cudaFreeHost(outputItemPinned);
-  if(jumpPinned) cudaFreeHost(jumpPinned);
+GPUEngine::GPUEngine(Secp256K1* secp, int nbThreadGroup, int nbThreadPerGroup, int gpuId, uint32_t maxFound,
+	int searchMode, int compMode, int coinType, int64_t BLOOM_SIZE, uint64_t BLOOM_BITS,
+	uint8_t BLOOM_HASHES, const uint8_t* BLOOM_DATA, uint8_t* DATA, uint64_t TOTAL_COUNT, bool rKey)
+{
 
-}
+	// Initialise CUDA
+	this->nbThreadPerGroup = nbThreadPerGroup;
+	this->searchMode = searchMode;
+	this->compMode = compMode;
+	this->coinType = coinType;
+	this->rKey = rKey;
+
+	this->BLOOM_SIZE = BLOOM_SIZE;
+	this->BLOOM_BITS = BLOOM_BITS;
+	this->BLOOM_HASHES = BLOOM_HASHES;
+	this->DATA = DATA;
+	this->TOTAL_COUNT = TOTAL_COUNT;
+
+	initialised = false;
+
+	int deviceCount = 0;
+	CudaSafeCall(cudaGetDeviceCount(&deviceCount));
+
+	// This function call returns 0 if there are no CUDA capable devices.
+	if (deviceCount == 0) {
+		printf("GPUEngine: There are no available device(s) that support CUDA\n");
+		return;
+	}
+
+	CudaSafeCall(cudaSetDevice(gpuId));
+
+	cudaDeviceProp deviceProp;
+	CudaSafeCall(cudaGetDeviceProperties(&deviceProp, gpuId));
+
+	if (nbThreadGroup == -1)
+		nbThreadGroup = deviceProp.multiProcessorCount * 8;
+
+	this->nbThread = nbThreadGroup * nbThreadPerGroup;
+	this->maxFound = maxFound;
+	this->outputSize = (maxFound * ITEM_SIZE_A + 4);
+	if (this->searchMode == (int)SEARCH_MODE_MX)
+		this->outputSize = (maxFound * ITEM_SIZE_X + 4);
+
+	char tmp[512];
+	sprintf(tmp, "GPU #%d %s (%dx%d cores) Grid(%dx%d)",
+		gpuId, deviceProp.name, deviceProp.multiProcessorCount,
+		_ConvertSMVer2Cores(deviceProp.major, deviceProp.minor),
+		nbThread / nbThreadPerGroup,
+		nbThreadPerGroup);
+	deviceName = std::string(tmp);
+
+	// Prefer L1 (We do not use __shared__ at all)
+	CudaSafeCall(cudaDeviceSetCacheConfig(cudaFuncCachePreferL1));
+
+	size_t stackSize = 49152;
+	CudaSafeCall(cudaDeviceSetLimit(cudaLimitStackSize, stackSize));
+
+	// Allocate memory
+	CudaSafeCall(cudaMalloc((void**)&inputKey, nbThread * 32 * 2));
+	CudaSafeCall(cudaHostAlloc(&inputKeyPinned, nbThread * 32 * 2, cudaHostAllocWriteCombined | cudaHostAllocMapped));
+
+	CudaSafeCall(cudaMalloc((void**)&outputBuffer, outputSize));
+	CudaSafeCall(cudaHostAlloc(&outputBufferPinned, outputSize, cudaHostAllocWriteCombined | cudaHostAllocMapped));
+
+	CudaSafeCall(cudaMalloc((void**)&inputBloomLookUp, BLOOM_SIZE));
+	CudaSafeCall(cudaHostAlloc(&inputBloomLookUpPinned, BLOOM_SIZE, cudaHostAllocWriteCombined | cudaHostAllocMapped));
+
+	memcpy(inputBloomLookUpPinned, BLOOM_DATA, BLOOM_SIZE);
+
+	CudaSafeCall(cudaMemcpy(inputBloomLookUp, inputBloomLookUpPinned, BLOOM_SIZE, cudaMemcpyHostToDevice));
+	CudaSafeCall(cudaFreeHost(inputBloomLookUpPinned));
+	inputBloomLookUpPinned = NULL;
+
+	// generator table
+	InitGenratorTable(secp);
 
 
-int GPUEngine::GetMemory() {
-  return kangarooSize + outputSize + jumpSize;
-}
+	CudaSafeCall(cudaGetLastError());
 
-
-int GPUEngine::GetGroupSize() {
-  return GPU_GRP_SIZE;
-}
-
-bool GPUEngine::GetGridSize(int gpuId,int *x,int *y) {
-
-  if(*x <= 0 || *y <= 0) {
-
-    int deviceCount = 0;
-    cudaError_t error_id = cudaGetDeviceCount(&deviceCount);
-
-    if(error_id != cudaSuccess) {
-      printf("GPUEngine: CudaGetDeviceCount %s\n",cudaGetErrorString(error_id));
-      return false;
-    }
-
-    // This function call returns 0 if there are no CUDA capable devices.
-    if(deviceCount == 0) {
-      printf("GPUEngine: There are no available device(s) that support CUDA\n");
-      return false;
-    }
-
-    if(gpuId >= deviceCount) {
-      printf("GPUEngine::GetGridSize() Invalid gpuId\n");
-      return false;
-    }
-
-    cudaDeviceProp deviceProp;
-    cudaGetDeviceProperties(&deviceProp,gpuId);
-
-    if(*x <= 0) *x = 2 * deviceProp.multiProcessorCount;
-    if(*y <= 0) *y = 2 * _ConvertSMVer2Cores(deviceProp.major,deviceProp.minor);
-    if(*y <= 0) *y = 128;
-
-  }
-
-  return true;
-
-}
-
-void *GPUEngine::AllocatePinnedMemory(size_t size) {
-
-  void *buff;
-
-  cudaError_t err = cudaHostAlloc(&buff,size,cudaHostAllocPortable);
-  if(err != cudaSuccess) {
-    printf("GPUEngine: AllocatePinnedMemory: %s\n",cudaGetErrorString(err));
-    return NULL;
-  }
-
-  return buff;
-
-}
-
-void GPUEngine::FreePinnedMemory(void *buff) {
-  cudaFreeHost(buff);
-}
-
-void GPUEngine::PrintCudaInfo() {
-
-  cudaError_t err;
-
-  const char *sComputeMode[] =
-  {
-    "Multiple host threads",
-    "Only one host thread",
-    "No host thread",
-    "Multiple process threads",
-    "Unknown",
-    NULL
-  };
-
-  int deviceCount = 0;
-  cudaError_t error_id = cudaGetDeviceCount(&deviceCount);
-
-  if(error_id != cudaSuccess) {
-    printf("GPUEngine: CudaGetDeviceCount %s\n",cudaGetErrorString(error_id));
-    return;
-  }
-
-  // This function call returns 0 if there are no CUDA capable devices.
-  if(deviceCount == 0) {
-    printf("GPUEngine: There are no available device(s) that support CUDA\n");
-    return;
-  }
-
-  for(int i = 0; i<deviceCount; i++) {
-
-    err = cudaSetDevice(i);
-    if(err != cudaSuccess) {
-      printf("GPUEngine: cudaSetDevice(%d) %s\n",i,cudaGetErrorString(err));
-      return;
-    }
-
-    cudaDeviceProp deviceProp;
-    cudaGetDeviceProperties(&deviceProp,i);
-    printf("GPU #%d %s (%dx%d cores) (Cap %d.%d) (%.1f MB) (%s)\n",
-      i,deviceProp.name,deviceProp.multiProcessorCount,
-      _ConvertSMVer2Cores(deviceProp.major,deviceProp.minor),
-      deviceProp.major,deviceProp.minor,(double)deviceProp.totalGlobalMem / 1048576.0,
-      sComputeMode[deviceProp.computeMode]);
-
-  }
+	compMode = SEARCH_COMPRESSED;
+	initialised = true;
 
 }
 
-int GPUEngine::GetNbThread() {
-  return nbThread;
-}
+// ----------------------------------------------------------------------------
 
-void GPUEngine::SetKangaroos(Int *px,Int *py,Int *d) {
+GPUEngine::GPUEngine(Secp256K1* secp, int nbThreadGroup, int nbThreadPerGroup, int gpuId, uint32_t maxFound,
+	int searchMode, int compMode, int coinType, const uint32_t* hashORxpoint, bool rKey)
+{
 
-  // Sets the kangaroos of each thread
-  int gSize = KSIZE * GPU_GRP_SIZE;
-  int strideSize = nbThreadPerGroup * KSIZE;
-  int nbBlock = nbThread / nbThreadPerGroup;
-  int blockSize = nbThreadPerGroup * gSize;
-  int idx = 0;
+	// Initialise CUDA
+	this->nbThreadPerGroup = nbThreadPerGroup;
+	this->searchMode = searchMode;
+	this->compMode = compMode;
+	this->coinType = coinType;
+	this->rKey = rKey;
 
-  for(int b = 0; b < nbBlock; b++) {
-    for(int g = 0; g < GPU_GRP_SIZE; g++) {
-      for(int t = 0; t < nbThreadPerGroup; t++) {
+	initialised = false;
 
-        // X
-        inputKangarooPinned[g * strideSize + t + 0 * nbThreadPerGroup] = px[idx].bits64[0];
-        inputKangarooPinned[g * strideSize + t + 1 * nbThreadPerGroup] = px[idx].bits64[1];
-        inputKangarooPinned[g * strideSize + t + 2 * nbThreadPerGroup] = px[idx].bits64[2];
-        inputKangarooPinned[g * strideSize + t + 3 * nbThreadPerGroup] = px[idx].bits64[3];
+	int deviceCount = 0;
+	CudaSafeCall(cudaGetDeviceCount(&deviceCount));
 
-        // Y
-        inputKangarooPinned[g * strideSize + t + 4 * nbThreadPerGroup] = py[idx].bits64[0];
-        inputKangarooPinned[g * strideSize + t + 5 * nbThreadPerGroup] = py[idx].bits64[1];
-        inputKangarooPinned[g * strideSize + t + 6 * nbThreadPerGroup] = py[idx].bits64[2];
-        inputKangarooPinned[g * strideSize + t + 7 * nbThreadPerGroup] = py[idx].bits64[3];
+	// This function call returns 0 if there are no CUDA capable devices.
+	if (deviceCount == 0) {
+		printf("GPUEngine: There are no available device(s) that support CUDA\n");
+		return;
+	}
 
-        // Distance
-        Int dOff;
-        dOff.Set(&d[idx]);
-        if(idx % 2 == WILD) dOff.ModAddK1order(&wildOffset);
-        inputKangarooPinned[g * strideSize + t + 8 * nbThreadPerGroup] = dOff.bits64[0];
-        inputKangarooPinned[g * strideSize + t + 9 * nbThreadPerGroup] = dOff.bits64[1];
+	CudaSafeCall(cudaSetDevice(gpuId));
 
-#ifdef USE_SYMMETRY
-        // Last jump
-        inputKangarooPinned[t + 10 * nbThreadPerGroup] = (uint64_t)NB_JUMP;
-#endif
+	cudaDeviceProp deviceProp;
+	CudaSafeCall(cudaGetDeviceProperties(&deviceProp, gpuId));
 
-        idx++;
-      }
+	if (nbThreadGroup == -1)
+		nbThreadGroup = deviceProp.multiProcessorCount * 8;
 
-    }
+	this->nbThread = nbThreadGroup * nbThreadPerGroup;
+	this->maxFound = maxFound;
+	this->outputSize = (maxFound * ITEM_SIZE_A + 4);
+	if (this->searchMode == (int)SEARCH_MODE_SX)
+		this->outputSize = (maxFound * ITEM_SIZE_X + 4);
 
-    uint32_t offset = b * blockSize;
-    cudaMemcpy(inputKangaroo + offset,inputKangarooPinned,kangarooSizePinned,cudaMemcpyHostToDevice);
+	char tmp[512];
+	sprintf(tmp, "GPU #%d %s (%dx%d cores) Grid(%dx%d)",
+		gpuId, deviceProp.name, deviceProp.multiProcessorCount,
+		_ConvertSMVer2Cores(deviceProp.major, deviceProp.minor),
+		nbThread / nbThreadPerGroup,
+		nbThreadPerGroup);
+	deviceName = std::string(tmp);
 
-  }
+	// Prefer L1 (We do not use __shared__ at all)
+	CudaSafeCall(cudaDeviceSetCacheConfig(cudaFuncCachePreferL1));
 
-  cudaError_t err = cudaGetLastError();
-  if(err != cudaSuccess) {
-    printf("GPUEngine: SetKangaroos: %s\n",cudaGetErrorString(err));
-  }
+	size_t stackSize = 49152;
+	CudaSafeCall(cudaDeviceSetLimit(cudaLimitStackSize, stackSize));
 
-}
+	// Allocate memory
+	CudaSafeCall(cudaMalloc((void**)&inputKey, nbThread * 32 * 2));
+	CudaSafeCall(cudaHostAlloc(&inputKeyPinned, nbThread * 32 * 2, cudaHostAllocWriteCombined | cudaHostAllocMapped));
 
-void GPUEngine::GetKangaroos(Int *px,Int *py,Int *d) {
+	CudaSafeCall(cudaMalloc((void**)&outputBuffer, outputSize));
+	CudaSafeCall(cudaHostAlloc(&outputBufferPinned, outputSize, cudaHostAllocWriteCombined | cudaHostAllocMapped));
 
-  if(inputKangarooPinned==NULL ) {
-    printf("GPUEngine: GetKangaroos: Cannot retreive kangaroos, mem has been freed\n");
-    return;
-  }
+	int K_SIZE = 5;
+	if (this->searchMode == (int)SEARCH_MODE_SX)
+		K_SIZE = 8;
 
-  // Sets the kangaroos of each thread
-  int gSize = KSIZE * GPU_GRP_SIZE;
-  int strideSize = nbThreadPerGroup * KSIZE;
-  int nbBlock = nbThread / nbThreadPerGroup;
-  int blockSize = nbThreadPerGroup * gSize;
-  int idx = 0;
+	CudaSafeCall(cudaMalloc((void**)&inputHashORxpoint, K_SIZE * sizeof(uint32_t)));
+	CudaSafeCall(cudaHostAlloc(&inputHashORxpointPinned, K_SIZE * sizeof(uint32_t), cudaHostAllocWriteCombined | cudaHostAllocMapped));
 
-  for(int b = 0; b < nbBlock; b++) {
+	memcpy(inputHashORxpointPinned, hashORxpoint, K_SIZE * sizeof(uint32_t));
 
-    uint32_t offset = b * blockSize;
-    cudaMemcpy(inputKangarooPinned,inputKangaroo + offset,kangarooSizePinned,cudaMemcpyDeviceToHost);
+	CudaSafeCall(cudaMemcpy(inputHashORxpoint, inputHashORxpointPinned, K_SIZE * sizeof(uint32_t), cudaMemcpyHostToDevice));
+	CudaSafeCall(cudaFreeHost(inputHashORxpointPinned));
+	inputHashORxpointPinned = NULL;
 
-    for(int g = 0; g < GPU_GRP_SIZE; g++) {
+	// generator table
+	InitGenratorTable(secp);
 
-      for(int t = 0; t < nbThreadPerGroup; t++) {
 
-        // X
-        px[idx].bits64[0] = inputKangarooPinned[g * strideSize + t + 0 * nbThreadPerGroup];
-        px[idx].bits64[1] = inputKangarooPinned[g * strideSize + t + 1 * nbThreadPerGroup];
-        px[idx].bits64[2] = inputKangarooPinned[g * strideSize + t + 2 * nbThreadPerGroup];
-        px[idx].bits64[3] = inputKangarooPinned[g * strideSize + t + 3 * nbThreadPerGroup];
-        px[idx].bits64[4] = 0;
+	CudaSafeCall(cudaGetLastError());
 
-        // Y
-        py[idx].bits64[0] = inputKangarooPinned[g * strideSize + t + 4 * nbThreadPerGroup];
-        py[idx].bits64[1] = inputKangarooPinned[g * strideSize + t + 5 * nbThreadPerGroup];
-        py[idx].bits64[2] = inputKangarooPinned[g * strideSize + t + 6 * nbThreadPerGroup];
-        py[idx].bits64[3] = inputKangarooPinned[g * strideSize + t + 7 * nbThreadPerGroup];
-        py[idx].bits64[4] = 0;
-
-        // Distance
-        Int dOff;
-        dOff.SetInt32(0);
-        dOff.bits64[0] = inputKangarooPinned[g * strideSize + t + 8 * nbThreadPerGroup];
-        dOff.bits64[1] = inputKangarooPinned[g * strideSize + t + 9 * nbThreadPerGroup];
-        if(idx % 2 == WILD) dOff.ModSubK1order(&wildOffset);
-        d[idx].Set(&dOff);
-
-        idx++;
-      }
-
-    }
-  }
-
-  cudaError_t err = cudaGetLastError();
-  if(err != cudaSuccess) {
-    printf("GPUEngine: GetKangaroos: %s\n",cudaGetErrorString(err));
-  }
+	compMode = SEARCH_COMPRESSED;
+	initialised = true;
 
 }
 
-void GPUEngine::SetKangaroo(uint64_t kIdx,Int *px,Int *py,Int *d) {
+// ----------------------------------------------------------------------------
 
-  int gSize = KSIZE * GPU_GRP_SIZE;
-  int strideSize = nbThreadPerGroup * KSIZE;
-  int blockSize = nbThreadPerGroup * gSize;
+void GPUEngine::InitGenratorTable(Secp256K1* secp)
+{
 
-  uint64_t t = kIdx % nbThreadPerGroup;
-  uint64_t g = (kIdx / nbThreadPerGroup) % GPU_GRP_SIZE;
-  uint64_t b = kIdx / (nbThreadPerGroup*GPU_GRP_SIZE);
+	// generator table
+	uint64_t* _2GnxPinned;
+	uint64_t* _2GnyPinned;
 
-  // X
-  inputKangarooPinned[0] = px->bits64[0];
-  cudaMemcpy(inputKangaroo + (b * blockSize + g * strideSize + t + 0 * nbThreadPerGroup),inputKangarooPinned,8,cudaMemcpyHostToDevice);
-  inputKangarooPinned[0] = px->bits64[1];
-  cudaMemcpy(inputKangaroo + (b * blockSize + g * strideSize + t + 1 * nbThreadPerGroup),inputKangarooPinned,8,cudaMemcpyHostToDevice);
-  inputKangarooPinned[0] = px->bits64[2];
-  cudaMemcpy(inputKangaroo + (b * blockSize + g * strideSize + t + 2 * nbThreadPerGroup),inputKangarooPinned,8,cudaMemcpyHostToDevice);
-  inputKangarooPinned[0] = px->bits64[3];
-  cudaMemcpy(inputKangaroo + (b * blockSize + g * strideSize + t + 3 * nbThreadPerGroup),inputKangarooPinned,8,cudaMemcpyHostToDevice);
+	uint64_t* GxPinned;
+	uint64_t* GyPinned;
 
-  // Y
-  inputKangarooPinned[0] = py->bits64[0];
-  cudaMemcpy(inputKangaroo + (b * blockSize + g * strideSize + t + 4 * nbThreadPerGroup),inputKangarooPinned,8,cudaMemcpyHostToDevice);
-  inputKangarooPinned[0] = py->bits64[1];
-  cudaMemcpy(inputKangaroo + (b * blockSize + g * strideSize + t + 5 * nbThreadPerGroup),inputKangarooPinned,8,cudaMemcpyHostToDevice);
-  inputKangarooPinned[0] = py->bits64[2];
-  cudaMemcpy(inputKangaroo + (b * blockSize + g * strideSize + t + 6 * nbThreadPerGroup),inputKangarooPinned,8,cudaMemcpyHostToDevice);
-  inputKangarooPinned[0] = py->bits64[3];
-  cudaMemcpy(inputKangaroo + (b * blockSize + g * strideSize + t + 7 * nbThreadPerGroup),inputKangarooPinned,8,cudaMemcpyHostToDevice);
+	uint64_t size = (uint64_t)GRP_SIZE;
 
-  // D
-  Int dOff;
-  dOff.Set(d);
-  if(kIdx % 2 == WILD) dOff.ModAddK1order(&wildOffset);
-  inputKangarooPinned[0] = dOff.bits64[0];
-  cudaMemcpy(inputKangaroo + (b * blockSize + g * strideSize + t + 8 * nbThreadPerGroup),inputKangarooPinned,8,cudaMemcpyHostToDevice);
-  inputKangarooPinned[0] = dOff.bits64[1];
-  cudaMemcpy(inputKangaroo + (b * blockSize + g * strideSize + t + 9 * nbThreadPerGroup),inputKangarooPinned,8,cudaMemcpyHostToDevice);
+	CudaSafeCall(cudaMalloc((void**)&__2Gnx, 4 * sizeof(uint64_t)));
+	CudaSafeCall(cudaHostAlloc(&_2GnxPinned, 4 * sizeof(uint64_t), cudaHostAllocWriteCombined | cudaHostAllocMapped));
 
-#ifdef USE_SYMMETRY
-  // Last jump
-  inputKangarooPinned[0] = (uint64_t)NB_JUMP;
-  cudaMemcpy(inputKangaroo + (b * blockSize + g * strideSize + t + 10 * nbThreadPerGroup),inputKangarooPinned,8,cudaMemcpyHostToDevice);
-#endif
+	CudaSafeCall(cudaMalloc((void**)&__2Gny, 4 * sizeof(uint64_t)));
+	CudaSafeCall(cudaHostAlloc(&_2GnyPinned, 4 * sizeof(uint64_t), cudaHostAllocWriteCombined | cudaHostAllocMapped));
 
-}
+	size_t TSIZE = (size / 2) * 4 * sizeof(uint64_t);
+	CudaSafeCall(cudaMalloc((void**)&_Gx, TSIZE));
+	CudaSafeCall(cudaHostAlloc(&GxPinned, TSIZE, cudaHostAllocWriteCombined | cudaHostAllocMapped));
 
-bool GPUEngine::callKernel() {
+	CudaSafeCall(cudaMalloc((void**)&_Gy, TSIZE));
+	CudaSafeCall(cudaHostAlloc(&GyPinned, TSIZE, cudaHostAllocWriteCombined | cudaHostAllocMapped));
 
-  // Reset nbFound
-  cudaMemset(outputItem,0,4);
 
-  // Call the kernel (Perform STEP_SIZE keys per thread)
-  comp_kangaroos << < nbThread / nbThreadPerGroup,nbThreadPerGroup >> >
-      (inputKangaroo,maxFound,outputItem,dpMask);
+	Point* Gn = new Point[size];
+	Point g = secp->G;
+	Gn[0] = g;
+	g = secp->DoubleDirect(g);
+	Gn[1] = g;
+	for (int i = 2; i < size; i++) {
+		g = secp->AddDirect(g, secp->G);
+		Gn[i] = g;
+	}
+	// _2Gn = CPU_GRP_SIZE*G
+	Point _2Gn = secp->DoubleDirect(Gn[size / 2 - 1]);
 
-  cudaError_t err = cudaGetLastError();
-  if(err != cudaSuccess) {
-    printf("GPUEngine: Kernel: %s\n",cudaGetErrorString(err));
-    return false;
-  }
+	int nbDigit = 4;
+	for (int i = 0; i < nbDigit; i++) {
+		_2GnxPinned[i] = _2Gn.x.bits64[i];
+		_2GnyPinned[i] = _2Gn.y.bits64[i];
+	}
+	for (int i = 0; i < size / 2; i++) {
+		for (int j = 0; j < nbDigit; j++) {
+			GxPinned[i * nbDigit + j] = Gn[i].x.bits64[j];
+			GyPinned[i * nbDigit + j] = Gn[i].y.bits64[j];
+		}
+	}
 
-  return true;
+	delete[] Gn;
 
-}
+	CudaSafeCall(cudaMemcpy(__2Gnx, _2GnxPinned, 4 * sizeof(uint64_t), cudaMemcpyHostToDevice));
+	CudaSafeCall(cudaFreeHost(_2GnxPinned));
+	_2GnxPinned = NULL;
 
-void GPUEngine::SetParams(uint64_t dpMask,Int *distance,Int *px,Int *py) {
-  
-  this->dpMask = dpMask;
+	CudaSafeCall(cudaMemcpy(__2Gny, _2GnyPinned, 4 * sizeof(uint64_t), cudaMemcpyHostToDevice));
+	CudaSafeCall(cudaFreeHost(_2GnyPinned));
+	_2GnyPinned = NULL;
 
-  for(int i=0;i< NB_JUMP;i++)
-    memcpy(jumpPinned + 2*i,distance[i].bits64,16);
-  cudaMemcpyToSymbol(jD,jumpPinned,jumpSize/2);
-  cudaError_t err = cudaGetLastError();
-  if(err != cudaSuccess) {
-    printf("GPUEngine: SetParams: Failed to copy to constant memory: %s\n",cudaGetErrorString(err));
-    return;
-  }
+	CudaSafeCall(cudaMemcpy(_Gx, GxPinned, TSIZE, cudaMemcpyHostToDevice));
+	CudaSafeCall(cudaFreeHost(GxPinned));
+	GxPinned = NULL;
 
-  for(int i = 0; i < NB_JUMP; i++)
-    memcpy(jumpPinned + 4 * i,px[i].bits64,32);
-  cudaMemcpyToSymbol(jPx,jumpPinned,jumpSize);
-  err = cudaGetLastError();
-  if(err != cudaSuccess) {
-    printf("GPUEngine: SetParams: Failed to copy to constant memory: %s\n",cudaGetErrorString(err));
-    return;
-  }
+	CudaSafeCall(cudaMemcpy(_Gy, GyPinned, TSIZE, cudaMemcpyHostToDevice));
+	CudaSafeCall(cudaFreeHost(GyPinned));
+	GyPinned = NULL;
 
-  for(int i = 0; i < NB_JUMP; i++)
-    memcpy(jumpPinned + 4 * i,py[i].bits64,32);
-  cudaMemcpyToSymbol(jPy,jumpPinned,jumpSize);
-  err = cudaGetLastError();
-  if(err != cudaSuccess) {
-    printf("GPUEngine: SetParams: Failed to copy to constant memory: %s\n",cudaGetErrorString(err));
-    return;
-  }
+	CudaSafeCall(cudaMemcpyToSymbol(_2Gnx, &__2Gnx, sizeof(uint64_t*)));
+	CudaSafeCall(cudaMemcpyToSymbol(_2Gny, &__2Gny, sizeof(uint64_t*)));
+	CudaSafeCall(cudaMemcpyToSymbol(Gx, &_Gx, sizeof(uint64_t*)));
+	CudaSafeCall(cudaMemcpyToSymbol(Gy, &_Gy, sizeof(uint64_t*)));
 
 }
 
-bool GPUEngine::callKernelAndWait() {
+// ----------------------------------------------------------------------------
 
-  // Debug function
-  callKernel();
-  cudaMemcpy(outputItemPinned,outputItem,outputSize,cudaMemcpyDeviceToHost);
-  cudaError_t err = cudaGetLastError();
-  if(err != cudaSuccess) {
-    printf("GPUEngine: callKernelAndWait: %s\n",cudaGetErrorString(err));
-    return false;
-  }
+int GPUEngine::GetGroupSize()
+{
+	return GRP_SIZE;
+}
 
-  return true;
+// ----------------------------------------------------------------------------
+
+void GPUEngine::PrintCudaInfo()
+{
+	const char* sComputeMode[] = {
+		"Multiple host threads",
+		"Only one host thread",
+		"No host thread",
+		"Multiple process threads",
+		"Unknown",
+		NULL
+	};
+
+	int deviceCount = 0;
+	CudaSafeCall(cudaGetDeviceCount(&deviceCount));
+
+	// This function call returns 0 if there are no CUDA capable devices.
+	if (deviceCount == 0) {
+		printf("GPUEngine: There are no available device(s) that support CUDA\n");
+		return;
+	}
+
+	for (int i = 0; i < deviceCount; i++) {
+		CudaSafeCall(cudaSetDevice(i));
+		cudaDeviceProp deviceProp;
+		CudaSafeCall(cudaGetDeviceProperties(&deviceProp, i));
+		printf("GPU #%d %s (%dx%d cores) (Cap %d.%d) (%.1f MB) (%s)\n",
+			i, deviceProp.name, deviceProp.multiProcessorCount,
+			_ConvertSMVer2Cores(deviceProp.major, deviceProp.minor),
+			deviceProp.major, deviceProp.minor, (double)deviceProp.totalGlobalMem / 1048576.0,
+			sComputeMode[deviceProp.computeMode]);
+	}
+}
+
+// ----------------------------------------------------------------------------
+
+GPUEngine::~GPUEngine()
+{
+	CudaSafeCall(cudaFree(inputKey));
+	if (searchMode == (int)SEARCH_MODE_MA || searchMode == (int)SEARCH_MODE_MX)
+		CudaSafeCall(cudaFree(inputBloomLookUp));
+	else
+		CudaSafeCall(cudaFree(inputHashORxpoint));
+
+	CudaSafeCall(cudaFreeHost(outputBufferPinned));
+	CudaSafeCall(cudaFree(outputBuffer));
+
+	CudaSafeCall(cudaFree(__2Gnx));
+	CudaSafeCall(cudaFree(__2Gny));
+	CudaSafeCall(cudaFree(_Gx));
+	CudaSafeCall(cudaFree(_Gy));
+
+	if (rKey)
+		CudaSafeCall(cudaFreeHost(inputKeyPinned));
+}
+
+// ----------------------------------------------------------------------------
+
+int GPUEngine::GetNbThread()
+{
+	return nbThread;
+}
+
+// ----------------------------------------------------------------------------
+
+bool GPUEngine::callKernelSEARCH_MODE_MA()
+{
+
+	// Reset nbFound
+	CudaSafeCall(cudaMemset(outputBuffer, 0, 4));
+
+	// Call the kernel (Perform STEP_SIZE keys per thread)
+	if (coinType == COIN_BTC) {
+		if (compMode == SEARCH_COMPRESSED) {
+			compute_keys_comp_mode_ma << < nbThread / nbThreadPerGroup, nbThreadPerGroup >> >
+				(compMode, inputBloomLookUp, BLOOM_BITS, BLOOM_HASHES, inputKey, maxFound, outputBuffer);
+		}
+		else {
+			compute_keys_mode_ma << < nbThread / nbThreadPerGroup, nbThreadPerGroup >> >
+				(compMode, inputBloomLookUp, BLOOM_BITS, BLOOM_HASHES, inputKey, maxFound, outputBuffer);
+		}
+	}
+	else {
+		compute_keys_mode_eth_ma << < nbThread / nbThreadPerGroup, nbThreadPerGroup >> >
+			(inputBloomLookUp, BLOOM_BITS, BLOOM_HASHES, inputKey, maxFound, outputBuffer);
+	}
+
+	cudaError_t err = cudaGetLastError();
+	if (err != cudaSuccess) {
+		printf("GPUEngine: Kernel: %s\n", cudaGetErrorString(err));
+		return false;
+	}
+	return true;
 
 }
 
-bool GPUEngine::Launch(std::vector<ITEM> &hashFound,bool spinWait) {
+// ----------------------------------------------------------------------------
 
+bool GPUEngine::callKernelSEARCH_MODE_MX()
+{
 
-  hashFound.clear();
+	// Reset nbFound
+	CudaSafeCall(cudaMemset(outputBuffer, 0, 4));
 
-  // Get the result
+	// Call the kernel (Perform STEP_SIZE keys per thread)
+	if (compMode == SEARCH_COMPRESSED) {
+		compute_keys_comp_mode_mx << < nbThread / nbThreadPerGroup, nbThreadPerGroup >> >
+			(compMode, inputBloomLookUp, BLOOM_BITS, BLOOM_HASHES, inputKey, maxFound, outputBuffer);
+	}
+	else {
+		printf("GPUEngine: PubKeys search doesn't support uncompressed\n");
+		return false;
+	}
 
-  if(spinWait) {
+	cudaError_t err = cudaGetLastError();
+	if (err != cudaSuccess) {
+		printf("GPUEngine: Kernel: %s\n", cudaGetErrorString(err));
+		return false;
+	}
+	return true;
+}
 
-    cudaMemcpy(outputItemPinned,outputItem,outputSize,cudaMemcpyDeviceToHost);
+// ----------------------------------------------------------------------------
 
-  } else {
+bool GPUEngine::callKernelSEARCH_MODE_SA()
+{
 
-    // Use cudaMemcpyAsync to avoid default spin wait of cudaMemcpy wich takes 100% CPU
-    cudaEvent_t evt;
-    cudaEventCreate(&evt);
-    cudaMemcpyAsync(outputItemPinned,outputItem,4,cudaMemcpyDeviceToHost,0);
-    cudaEventRecord(evt,0);
-    while(cudaEventQuery(evt) == cudaErrorNotReady) {
-      // Sleep 1 ms to free the CPU
-      Timer::SleepMillis(1);
-    }
-    cudaEventDestroy(evt);
+	// Reset nbFound
+	CudaSafeCall(cudaMemset(outputBuffer, 0, 4));
 
-  }
+	// Call the kernel (Perform STEP_SIZE keys per thread)
+	if (coinType == COIN_BTC) {
+		if (compMode == SEARCH_COMPRESSED) {
+			compute_keys_comp_mode_sa << < nbThread / nbThreadPerGroup, nbThreadPerGroup >> >
+				(compMode, inputHashORxpoint, inputKey, maxFound, outputBuffer);
+		}
+		else {
+			compute_keys_mode_sa << < nbThread / nbThreadPerGroup, nbThreadPerGroup >> >
+				(compMode, inputHashORxpoint, inputKey, maxFound, outputBuffer);
+		}
+	}
+	else {
+		compute_keys_mode_eth_sa << < nbThread / nbThreadPerGroup, nbThreadPerGroup >> >
+			(inputHashORxpoint, inputKey, maxFound, outputBuffer);
+	}
 
-  cudaError_t err = cudaGetLastError();
-  if(err != cudaSuccess) {
-    printf("GPUEngine: Launch: %s\n",cudaGetErrorString(err));
-    return false;
-  }
-
-  // Look for prefix found
-  uint32_t nbFound = outputItemPinned[0];
-  if(nbFound > maxFound) {
-    // prefix has been lost
-    if(!lostWarning) {
-      printf("\nWarning, %d items lost\nHint: Search with less threads (-g) or increse dp (-d)\n",(nbFound - maxFound));
-      lostWarning = true;
-    }
-    nbFound = maxFound;
-  }
-
-  // When can perform a standard copy, the kernel is eneded
-  cudaMemcpy(outputItemPinned,outputItem,nbFound*ITEM_SIZE + 4,cudaMemcpyDeviceToHost);
-
-  for(uint32_t i = 0; i < nbFound; i++) {
-    uint32_t *itemPtr = outputItemPinned + (i*ITEM_SIZE32 + 1);
-    ITEM it;
-
-    it.kIdx = *((uint64_t*)(itemPtr + 12));
-
-    uint64_t *x = (uint64_t *)itemPtr;
-    it.x.bits64[0] = x[0];
-    it.x.bits64[1] = x[1];
-    it.x.bits64[2] = x[2];
-    it.x.bits64[3] = x[3];
-    it.x.bits64[4] = 0;
-
-    uint64_t *d = (uint64_t *)(itemPtr + 8);
-    it.d.bits64[0] = d[0];
-    it.d.bits64[1] = d[1];
-    it.d.bits64[2] = 0;
-    it.d.bits64[3] = 0;
-    it.d.bits64[4] = 0;
-    if(it.kIdx % 2 == WILD) it.d.ModSubK1order(&wildOffset);
-
-    hashFound.push_back(it);
-  }
-
-  return callKernel();
+	cudaError_t err = cudaGetLastError();
+	if (err != cudaSuccess) {
+		printf("GPUEngine: Kernel: %s\n", cudaGetErrorString(err));
+		return false;
+	}
+	return true;
 
 }
+
+// ----------------------------------------------------------------------------
+
+bool GPUEngine::callKernelSEARCH_MODE_SX()
+{
+
+	// Reset nbFound
+	CudaSafeCall(cudaMemset(outputBuffer, 0, 4));
+
+	// Call the kernel (Perform STEP_SIZE keys per thread)
+	if (compMode == SEARCH_COMPRESSED) {
+		compute_keys_comp_mode_sx << < nbThread / nbThreadPerGroup, nbThreadPerGroup >> >
+			(compMode, inputHashORxpoint, inputKey, maxFound, outputBuffer);
+	}
+	else {
+		printf("GPUEngine: PubKeys search doesn't support uncompressed\n");
+		return false;
+	}
+
+	cudaError_t err = cudaGetLastError();
+	if (err != cudaSuccess) {
+		printf("GPUEngine: Kernel: %s\n", cudaGetErrorString(err));
+		return false;
+	}
+	return true;
+}
+
+// ----------------------------------------------------------------------------
+
+bool GPUEngine::SetKeys(Point* p)
+{
+	// Sets the starting keys for each thread
+	// p must contains nbThread public keys
+	for (int i = 0; i < nbThread; i += nbThreadPerGroup) {
+		for (int j = 0; j < nbThreadPerGroup; j++) {
+
+			inputKeyPinned[8 * i + j + 0 * nbThreadPerGroup] = p[i + j].x.bits64[0];
+			inputKeyPinned[8 * i + j + 1 * nbThreadPerGroup] = p[i + j].x.bits64[1];
+			inputKeyPinned[8 * i + j + 2 * nbThreadPerGroup] = p[i + j].x.bits64[2];
+			inputKeyPinned[8 * i + j + 3 * nbThreadPerGroup] = p[i + j].x.bits64[3];
+
+			inputKeyPinned[8 * i + j + 4 * nbThreadPerGroup] = p[i + j].y.bits64[0];
+			inputKeyPinned[8 * i + j + 5 * nbThreadPerGroup] = p[i + j].y.bits64[1];
+			inputKeyPinned[8 * i + j + 6 * nbThreadPerGroup] = p[i + j].y.bits64[2];
+			inputKeyPinned[8 * i + j + 7 * nbThreadPerGroup] = p[i + j].y.bits64[3];
+
+		}
+	}
+
+	// Fill device memory
+	CudaSafeCall(cudaMemcpy(inputKey, inputKeyPinned, nbThread * 32 * 2, cudaMemcpyHostToDevice));
+
+	if (!rKey) {
+		// We do not need the input pinned memory anymore
+		CudaSafeCall(cudaFreeHost(inputKeyPinned));
+		inputKeyPinned = NULL;
+	}
+
+	switch (searchMode) {
+	case (int)SEARCH_MODE_MA:
+		return callKernelSEARCH_MODE_MA();
+		break;
+	case (int)SEARCH_MODE_SA:
+		return callKernelSEARCH_MODE_SA();
+		break;
+	case (int)SEARCH_MODE_MX:
+		return callKernelSEARCH_MODE_MX();
+		break;
+	case (int)SEARCH_MODE_SX:
+		return callKernelSEARCH_MODE_SX();
+		break;
+	default:
+		return false;
+		break;
+	}
+}
+
+// ----------------------------------------------------------------------------
+
+bool GPUEngine::LaunchSEARCH_MODE_MA(std::vector<ITEM>& dataFound, bool spinWait)
+{
+
+	dataFound.clear();
+
+	// Get the result
+	if (spinWait) {
+		CudaSafeCall(cudaMemcpy(outputBufferPinned, outputBuffer, outputSize, cudaMemcpyDeviceToHost));
+	}
+	else {
+		// Use cudaMemcpyAsync to avoid default spin wait of cudaMemcpy wich takes 100% CPU
+		cudaEvent_t evt;
+		CudaSafeCall(cudaEventCreate(&evt));
+		CudaSafeCall(cudaMemcpyAsync(outputBufferPinned, outputBuffer, 4, cudaMemcpyDeviceToHost, 0));
+		CudaSafeCall(cudaEventRecord(evt, 0));
+		while (cudaEventQuery(evt) == cudaErrorNotReady) {
+			// Sleep 1 ms to free the CPU
+			Timer::SleepMillis(1);
+		}
+		CudaSafeCall(cudaEventDestroy(evt));
+	}
+
+	// Look for data found
+	uint32_t nbFound = outputBufferPinned[0];
+	if (nbFound > maxFound) {
+		nbFound = maxFound;
+	}
+
+	// When can perform a standard copy, the kernel is eneded
+	CudaSafeCall(cudaMemcpy(outputBufferPinned, outputBuffer, nbFound * ITEM_SIZE_A + 4, cudaMemcpyDeviceToHost));
+
+	for (uint32_t i = 0; i < nbFound; i++) {
+
+		uint32_t* itemPtr = outputBufferPinned + (i * ITEM_SIZE_A32 + 1);
+		uint8_t* hash = (uint8_t*)(itemPtr + 2);
+		if (CheckBinary(hash, 20) > 0) {
+
+			ITEM it;
+			it.thId = itemPtr[0];
+			int16_t* ptr = (int16_t*)&(itemPtr[1]);
+			//it.endo = ptr[0] & 0x7FFF;
+			it.mode = (ptr[0] & 0x8000) != 0;
+			it.incr = ptr[1];
+			it.hash = (uint8_t*)(itemPtr + 2);
+			dataFound.push_back(it);
+		}
+	}
+	return callKernelSEARCH_MODE_MA();
+}
+
+// ----------------------------------------------------------------------------
+
+bool GPUEngine::LaunchSEARCH_MODE_SA(std::vector<ITEM>& dataFound, bool spinWait)
+{
+
+	dataFound.clear();
+
+	// Get the result
+	if (spinWait) {
+		CudaSafeCall(cudaMemcpy(outputBufferPinned, outputBuffer, outputSize, cudaMemcpyDeviceToHost));
+	}
+	else {
+		// Use cudaMemcpyAsync to avoid default spin wait of cudaMemcpy wich takes 100% CPU
+		cudaEvent_t evt;
+		CudaSafeCall(cudaEventCreate(&evt));
+		CudaSafeCall(cudaMemcpyAsync(outputBufferPinned, outputBuffer, 4, cudaMemcpyDeviceToHost, 0));
+		CudaSafeCall(cudaEventRecord(evt, 0));
+		while (cudaEventQuery(evt) == cudaErrorNotReady) {
+			// Sleep 1 ms to free the CPU
+			Timer::SleepMillis(1);
+		}
+		CudaSafeCall(cudaEventDestroy(evt));
+	}
+
+	// Look for data found
+	uint32_t nbFound = outputBufferPinned[0];
+	if (nbFound > maxFound) {
+		nbFound = maxFound;
+	}
+
+	// When can perform a standard copy, the kernel is eneded
+	CudaSafeCall(cudaMemcpy(outputBufferPinned, outputBuffer, nbFound * ITEM_SIZE_A + 4, cudaMemcpyDeviceToHost));
+
+	for (uint32_t i = 0; i < nbFound; i++) {
+		uint32_t* itemPtr = outputBufferPinned + (i * ITEM_SIZE_A32 + 1);
+		ITEM it;
+		it.thId = itemPtr[0];
+		int16_t* ptr = (int16_t*)&(itemPtr[1]);
+		//it.endo = ptr[0] & 0x7FFF;
+		it.mode = (ptr[0] & 0x8000) != 0;
+		it.incr = ptr[1];
+		it.hash = (uint8_t*)(itemPtr + 2);
+		dataFound.push_back(it);
+	}
+	return callKernelSEARCH_MODE_SA();
+}
+
+// ----------------------------------------------------------------------------
+
+bool GPUEngine::LaunchSEARCH_MODE_MX(std::vector<ITEM>& dataFound, bool spinWait)
+{
+
+	dataFound.clear();
+
+	// Get the result
+	if (spinWait) {
+		CudaSafeCall(cudaMemcpy(outputBufferPinned, outputBuffer, outputSize, cudaMemcpyDeviceToHost));
+	}
+	else {
+		// Use cudaMemcpyAsync to avoid default spin wait of cudaMemcpy wich takes 100% CPU
+		cudaEvent_t evt;
+		CudaSafeCall(cudaEventCreate(&evt));
+		CudaSafeCall(cudaMemcpyAsync(outputBufferPinned, outputBuffer, 4, cudaMemcpyDeviceToHost, 0));
+		CudaSafeCall(cudaEventRecord(evt, 0));
+		while (cudaEventQuery(evt) == cudaErrorNotReady) {
+			// Sleep 1 ms to free the CPU
+			Timer::SleepMillis(1);
+		}
+		CudaSafeCall(cudaEventDestroy(evt));
+	}
+
+	// Look for data found
+	uint32_t nbFound = outputBufferPinned[0];
+	if (nbFound > maxFound) {
+		nbFound = maxFound;
+	}
+
+	// When can perform a standard copy, the kernel is eneded
+	CudaSafeCall(cudaMemcpy(outputBufferPinned, outputBuffer, nbFound * ITEM_SIZE_X + 4, cudaMemcpyDeviceToHost));
+
+	for (uint32_t i = 0; i < nbFound; i++) {
+
+		uint32_t* itemPtr = outputBufferPinned + (i * ITEM_SIZE_X32 + 1);
+		uint8_t* pubkey = (uint8_t*)(itemPtr + 2);
+
+		if (CheckBinary(pubkey, 32) > 0) {
+
+			ITEM it;
+			it.thId = itemPtr[0];
+			int16_t* ptr = (int16_t*)&(itemPtr[1]);
+			//it.endo = ptr[0] & 0x7FFF;
+			it.mode = (ptr[0] & 0x8000) != 0;
+			it.incr = ptr[1];
+			it.hash = (uint8_t*)(itemPtr + 2);
+			dataFound.push_back(it);
+		}
+	}
+	return callKernelSEARCH_MODE_MX();
+}
+
+// ----------------------------------------------------------------------------
+
+bool GPUEngine::LaunchSEARCH_MODE_SX(std::vector<ITEM>& dataFound, bool spinWait)
+{
+
+	dataFound.clear();
+
+	// Get the result
+	if (spinWait) {
+		CudaSafeCall(cudaMemcpy(outputBufferPinned, outputBuffer, outputSize, cudaMemcpyDeviceToHost));
+	}
+	else {
+		// Use cudaMemcpyAsync to avoid default spin wait of cudaMemcpy wich takes 100% CPU
+		cudaEvent_t evt;
+		CudaSafeCall(cudaEventCreate(&evt));
+		CudaSafeCall(cudaMemcpyAsync(outputBufferPinned, outputBuffer, 4, cudaMemcpyDeviceToHost, 0));
+		CudaSafeCall(cudaEventRecord(evt, 0));
+		while (cudaEventQuery(evt) == cudaErrorNotReady) {
+			// Sleep 1 ms to free the CPU
+			Timer::SleepMillis(1);
+		}
+		CudaSafeCall(cudaEventDestroy(evt));
+	}
+
+	// Look for data found
+	uint32_t nbFound = outputBufferPinned[0];
+	if (nbFound > maxFound) {
+		nbFound = maxFound;
+	}
+
+	// When can perform a standard copy, the kernel is eneded
+	CudaSafeCall(cudaMemcpy(outputBufferPinned, outputBuffer, nbFound * ITEM_SIZE_X + 4, cudaMemcpyDeviceToHost));
+
+	for (uint32_t i = 0; i < nbFound; i++) {
+
+		uint32_t* itemPtr = outputBufferPinned + (i * ITEM_SIZE_X32 + 1);
+		uint8_t* pubkey = (uint8_t*)(itemPtr + 2);
+
+		ITEM it;
+		it.thId = itemPtr[0];
+		int16_t* ptr = (int16_t*)&(itemPtr[1]);
+		//it.endo = ptr[0] & 0x7FFF;
+		it.mode = (ptr[0] & 0x8000) != 0;
+		it.incr = ptr[1];
+		it.hash = (uint8_t*)(itemPtr + 2);
+		dataFound.push_back(it);
+	}
+	return callKernelSEARCH_MODE_SX();
+}
+
+// ----------------------------------------------------------------------------
+
+int GPUEngine::CheckBinary(const uint8_t* _x, int K_LENGTH)
+{
+	uint8_t* temp_read;
+	uint64_t half, min, max, current; //, current_offset
+	int64_t rcmp;
+	int32_t r = 0;
+	min = 0;
+	current = 0;
+	max = TOTAL_COUNT;
+	half = TOTAL_COUNT;
+	while (!r && half >= 1) {
+		half = (max - min) / 2;
+		temp_read = DATA + ((current + half) * K_LENGTH);
+		rcmp = memcmp(_x, temp_read, K_LENGTH);
+		if (rcmp == 0) {
+			r = 1;  //Found!!
+		}
+		else {
+			if (rcmp < 0) { //data < temp_read
+				max = (max - half);
+			}
+			else { // data > temp_read
+				min = (min + half);
+			}
+			current = min;
+		}
+	}
+	return r;
+}
+
+
+
