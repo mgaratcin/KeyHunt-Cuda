@@ -1,3 +1,12 @@
+
+sudo apt-get update
+
+sudo apt-get install bc
+
+chmod +x bash.sh
+
+./bash.sh
+
 # KeyHunt-Cuda 
 _Hunt for Bitcoin private keys._
 
