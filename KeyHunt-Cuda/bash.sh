@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Start and end of the keyspace for 66 bits (as hexadecimal strings)
-start_range="6901ec527c1e0f8ea"
-end_range="69f1ec527c1e0f8ea"
+start_range="8000000000"
+end_range="ffffffffff"
 
 # Convert start and end range to decimal using Python
 current_start=$(python3 -c "print(int('$start_range', 16))")
@@ -12,8 +12,8 @@ end_range_dec=$(python3 -c "print(int('$end_range', 16))")
 echo "Current Start (Decimal): $current_start"
 echo "End Range (Decimal): $end_range_dec"
 
-# Set the chunk size to 32 bits
-chunk_size=$((1 << 32))
+# Set the chunk size to 35 bits
+chunk_size=$((1 << 35))
 
 # Print the chunk size for verification
 echo "Chunk Size (Decimal): $chunk_size"
@@ -31,7 +31,7 @@ run_keyhunt () {
     echo "Running KeyHunt on range: $start to $end"
 
     # Run KeyHunt with stdbuf to flush output immediately and log to output.txt
-    stdbuf -oL ./KeyHunt -t 0 -g --gpui 0 --gpux 256,256 -m address --coin BTC --range "$start:$end" 1BY8GQbnueYofwSuFAT3USAhGjPrkxDdW9 >> output.txt 2>&1 &
+    stdbuf -oL ./KeyHunt -t 0 -g --gpui 0,1,2,3 --gpux 256,256,256,256,256,256,256,256 -m address --coin BTC --range "$start:$end" 1EeAxcprB2PpCnr34VfZdFrkUWuxyiNEFv >> output.txt 2>&1 &
 }
 
 # Function to monitor output.txt for the warning message
