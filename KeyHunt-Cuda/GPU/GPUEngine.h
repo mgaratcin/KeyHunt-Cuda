@@ -35,7 +35,7 @@
 #define COIN_ETH 2
 
 // Number of key per thread (must be a multiple of GRP_SIZE) per kernel call
-#define STEP_SIZE (1024*2048)
+#define STEP_SIZE (65536*131072)
 
 // Number of thread per block
 #define ITEM_SIZE_A 28
