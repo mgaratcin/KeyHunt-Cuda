@@ -56,13 +56,13 @@ Bloom::~Bloom()
 
 int Bloom::check(const void *buffer, int len)
 {
-    return bloom_check_add(buffer, len, 0);
+    return bloom_check_add(buffer, 4, 0);
 }
 
 
 int Bloom::add(const void *buffer, int len)
 {
-    return bloom_check_add(buffer, len, 1);
+    return bloom_check_add(buffer, 4, 1);
 }
 
 
@@ -345,6 +345,7 @@ unsigned int Bloom::murmurhash2(const void *key, int len, const unsigned int see
 
     return h;
 }
+
 
 
 
