@@ -1397,7 +1397,3 @@ char* KeyHunt::toTimeStr(int sec, char* timeStr)
 //	//y = y / mpf_class(r);
 //	return 0;// y.get_d();
 //}
-
-
-
-
