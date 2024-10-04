@@ -75,7 +75,7 @@ KeyHunt::KeyHunt(const std::string& inputFile, int compMode, int searchMode, int
 
 	uint8_t* buf = (uint8_t*)malloc(K_LENGTH);;
 
-	bloom = new Bloom(2048000 * N, 1000);
+	bloom = new Bloom(2048000000 * N, 1000000);
 
 	uint64_t percent = (N - 1) / 100;
 	uint64_t i = 0;
