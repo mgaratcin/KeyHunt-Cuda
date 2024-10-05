@@ -1,102 +1,52 @@
 #!/bin/bash
 
-# Start and end of the keyspace for 66 bits (as hexadecimal strings)
-start_range="40000000000000000"
-end_range="7ffffffffffffffff"
+# Define start and end of the range in hexadecimal
+START_HEX="7218E420000000000"
+END_HEX="7218E42FFFFFFFFFF"
+CHUNK_SIZE="34359738368"  # 2^35, which equals 34359738368 in decimal
 
-# Convert start and end range to decimal using Python
-current_start=$(python3 -c "print(int('$start_range', 16))")
-end_range_dec=$(python3 -c "print(int('$end_range', 16))")
-
-# Set the chunk size to 35 bits
-chunk_size=$((1 << 44))
-
-# Ensure output.txt exists and clear old content
-> output.txt
-
-# Flag to indicate if warning was detected
-warning_detected=0
-
-# Function to run KeyHunt on a specific range (PARALLEL)
-run_keyhunt () {
-    local start=$1
-    local end=$2
-    echo "Running KeyHunt on range: $start to $end"
-    stdbuf -oL ./KeyHunt -t 0 -g --gpui 0,1,2,3,4,5,6,7 --gpux 4092,256,4092,256,4092,256,4092,256,4092,256,4092,256,4092,256,4092,256 -m address --coin BTC --range "$start:$end" 1BY8GQbnueYofwSuFAT3USAhGjPrkxDdW9 >> output.txt 2>&1 &
+# Function to convert decimal to hexadecimal
+dec2hex() {
+    echo "obase=16; $1" | bc
 }
 
-# Function to monitor output.txt for the warning message
-monitor_output() {
-    echo "Monitoring output.txt for warning..."
-    tail -n 0 -f output.txt | while read -r line; do
-        if echo "$line" | grep -q "Warning"; then
-            echo "Warning found! Terminating all KeyHunt processes."
-            pkill KeyHunt  # Terminate all KeyHunt processes
-            warning_detected=1  # Set the warning flag
-            break
+# Function to convert hexadecimal to decimal using bc for arbitrary-precision support
+hex2dec() {
+    echo "ibase=16; $1" | bc
+}
+
+# Convert start and end from hex to decimal for easier range operations
+START_DEC=$(hex2dec "$START_HEX")
+END_DEC=$(hex2dec "$END_HEX")
+
+# Iterate over the range in exactly 35-bit chunks using bc
+CURRENT_DEC=$START_DEC
+while [ "$(echo "$CURRENT_DEC < $END_DEC" | bc)" -eq 1 ]; do
+    NEXT_DEC=$(echo "$CURRENT_DEC + $CHUNK_SIZE" | bc)
+    
+    if [ "$(echo "$NEXT_DEC > $END_DEC" | bc)" -eq 1 ]; then
+        NEXT_DEC=$END_DEC
+    fi
+    
+    # Convert decimal back to hex for range values
+    CURRENT_HEX=$(dec2hex "$CURRENT_DEC")
+    NEXT_HEX=$(dec2hex "$NEXT_DEC")
+
+    echo "Processing range $CURRENT_HEX:$NEXT_HEX"
+
+    # Run KeyHunt for the current 35-bit chunk and check for the solution in real time
+    ./KeyHunt -t 0 -g --gpui 0 --gpux 4092,256 -m address --coin BTC --range "$CURRENT_HEX:$NEXT_HEX" "1BY8GQbnueYofwSuFAT3USAhGjPrkxDdW9" | while IFS= read -r line
+    do
+        echo "$line"  # Show the line for logging purposes
+        if echo "$line" | grep -q "PivK :"; then
+            echo "Solution found!"
+            echo "$line"
+            kill $$  # Stop the entire script
         fi
     done
-}
 
-# Clean up all processes when script is terminated
-trap 'echo "Terminating all processes."; pkill KeyHunt; exit' SIGINT SIGTERM
+    # Update CURRENT_DEC to the next range
+    CURRENT_DEC=$NEXT_DEC
+done
 
-# Function to process the keyspace in batches of four in PARALLEL, with a 69-second timer
-process_keyspace () {
-    echo "Starting keyspace processing..."
-
-    # Start the monitor in the background
-    monitor_output &
-
-    while [ "$(python3 -c "print($current_start < $end_range_dec)")" == "True" ]; do
-        echo "Processing from Decimal: $current_start to $end_range_dec"
-
-        # Create an array to store background process IDs
-        local pids=()
-        local start_time=$(date +%s)  # Record the start time
-
-        for i in {1..1}; do
-            if [ "$(python3 -c "print($current_start < $end_range_dec)")" == "True" ] && [ "$warning_detected" -eq 0 ]; then
-                current_end=$(python3 -c "print($current_start + $chunk_size - 1)")
-                if [ "$(python3 -c "print($current_end > $end_range_dec)")" == "True" ]; then
-                    current_end=$end_range_dec
-                fi
-
-                start_hex=$(python3 -c "print(hex($current_start)[2:])")
-                end_hex=$(python3 -c "print(hex($current_end)[2:])")
-
-                echo "Processing range: $start_hex to $end_hex"
-                run_keyhunt $start_hex $end_hex
-
-                # Store the process ID of the background task
-                pids+=($!)
-                
-                current_start=$(python3 -c "print($current_end + 1)")
-            fi
-        done
-
-        # Sleep for 240 seconds and then kill all KeyHunt processes
-        while true; do
-            current_time=$(date +%s)
-            elapsed=$((current_time - start_time))
-
-            if [ $elapsed -ge 240 ]; then
-                echo "240 seconds have passed, moving to the next range."
-                pkill KeyHunt  # Terminate all KeyHunt processes
-                break
-            fi
-
-            # Check every second to avoid tight loops
-            sleep 1
-        done
-
-        # If warning is detected, stop further execution
-        if [ "$warning_detected" -eq 1 ]; then
-            echo "Warning detected, stopping further execution."
-            break
-        fi
-    done
-}
-
-# Run the keyspace processing function
-process_keyspace
+echo "All ranges processed. No solution found."
