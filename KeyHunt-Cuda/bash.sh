@@ -1,52 +1,94 @@
 #!/bin/bash
 
-# Define start and end of the range in hexadecimal
-START_HEX="7218E420000000000"
-END_HEX="7218E42FFFFFFFFFF"
-CHUNK_SIZE="34359738368"  # 2^35, which equals 34359738368 in decimal
+# Define start and end of the total range in hexadecimal
+START_HEX="2832ed749baba5ee4"
+END_HEX="2832ed751baba5ee4"
+CHUNK_SIZE=34359738368  # 2^35 in decimal
 
-# Function to convert decimal to hexadecimal
-dec2hex() {
-    echo "obase=16; $1" | bc
+# Define target address
+target_address="13zb1hQbWVsc2S7ZTZnP2G4undNNpdh5so"
+
+# Function to convert hex to decimal using bc
+hex_to_dec() {
+  # Convert hex input to uppercase to ensure bc compatibility
+  hex_upper=$(echo "$1" | tr '[:lower:]' '[:upper:]')
+  echo "ibase=16; ${hex_upper}" | bc
 }
 
-# Function to convert hexadecimal to decimal using bc for arbitrary-precision support
-hex2dec() {
-    echo "ibase=16; $1" | bc
+# Function to convert decimal to hex using bc
+dec_to_hex() {
+  echo "obase=16; ${1}" | bc
 }
 
-# Convert start and end from hex to decimal for easier range operations
-START_DEC=$(hex2dec "$START_HEX")
-END_DEC=$(hex2dec "$END_HEX")
+# Convert START and END to decimal for easier iteration
+start_dec=$(hex_to_dec "$START_HEX")
+end_dec=$(hex_to_dec "$END_HEX")
 
-# Iterate over the range in exactly 35-bit chunks using bc
-CURRENT_DEC=$START_DEC
-while [ "$(echo "$CURRENT_DEC < $END_DEC" | bc)" -eq 1 ]; do
-    NEXT_DEC=$(echo "$CURRENT_DEC + $CHUNK_SIZE" | bc)
-    
-    if [ "$(echo "$NEXT_DEC > $END_DEC" | bc)" -eq 1 ]; then
-        NEXT_DEC=$END_DEC
-    fi
-    
-    # Convert decimal back to hex for range values
-    CURRENT_HEX=$(dec2hex "$CURRENT_DEC")
-    NEXT_HEX=$(dec2hex "$NEXT_DEC")
+# Debug: Print start and end decimal values to verify correctness
+echo "Start Decimal: $start_dec"
+echo "End Decimal: $end_dec"
 
-    echo "Processing range $CURRENT_HEX:$NEXT_HEX"
+# Check if conversion was successful
+if [ -z "$start_dec" ] || [ -z "$end_dec" ]; then
+  echo "Error: Failed to convert hex values to decimal. Please check the input values."
+  exit 1
+fi
 
-    # Run KeyHunt for the current 35-bit chunk and check for the solution in real time
-    ./KeyHunt -t 0 -g --gpui 0 --gpux 4092,256 -m address --coin BTC --range "$CURRENT_HEX:$NEXT_HEX" "1BY8GQbnueYofwSuFAT3USAhGjPrkxDdW9" | while IFS= read -r line
-    do
-        echo "$line"  # Show the line for logging purposes
-        if echo "$line" | grep -q "PivK :"; then
-            echo "Solution found!"
-            echo "$line"
-            kill $$  # Stop the entire script
-        fi
-    done
+# Check if start is less than end
+if [ $(echo "$start_dec >= $end_dec" | bc) -eq 1 ]; then
+  echo "Error: Start value is not less than end value. Please check the input range."
+  exit 1
+fi
 
-    # Update CURRENT_DEC to the next range
-    CURRENT_DEC=$NEXT_DEC
+# Iterate over the keyspace in 35-bit chunks
+current_start=$start_dec
+while [ $(echo "$current_start < $end_dec" | bc) -eq 1 ]; do
+  # Calculate the end of the current chunk
+  current_end=$(echo "$current_start + $CHUNK_SIZE - 1" | bc)
+  if [ $(echo "$current_end > $end_dec" | bc) -eq 1 ]; then
+    current_end=$end_dec
+  fi
+
+  # Convert current range to hexadecimal
+  range_start_hex=$(dec_to_hex "$current_start")
+  range_end_hex=$(dec_to_hex "$current_end")
+
+  # Check for conversion errors
+  if [ -z "$range_start_hex" ] || [ -z "$range_end_hex" ]; then
+    echo "Error: Failed to convert decimal to hex. Please check the input values."
+    exit 1
+  fi
+
+  echo "Processing range: $range_start_hex to $range_end_hex"
+
+  # Run the KeyHunt command
+  ./KeyHunt -t 0 -g --gpui 0 --gpux 4092,256 -m address --coin BTC --range ${range_start_hex}:${range_end_hex} ${target_address} > output.txt 2>&1
+
+  # Ensure the command executed successfully
+  if [ $? -ne 0 ]; then
+    echo "Error: KeyHunt command failed."
+    exit 1
+  fi
+
+  # Debug: Display output for each iteration
+  echo "--- KeyHunt Output Start ---"
+  cat output.txt
+  echo "--- KeyHunt Output End ---"
+
+  # Check if an incorrect key or warning is found by examining the output
+  if grep -q -E "Warning, wrong private key generated|WIF" output.txt; then
+    echo "Warning: Wrong private key or WIF generated. Stopping."
+    exit 1
+  fi
+
+  # Check for a clear indicator that the correct key was found
+  if grep -q "Target address found" output.txt; then
+    echo "Target address found. Stopping."
+    exit 0
+  fi
+
+  # Move to the next chunk
+  current_start=$(echo "$current_end + 1" | bc)
 done
 
-echo "All ranges processed. No solution found."
+echo "Completed all ranges without finding the target address."
