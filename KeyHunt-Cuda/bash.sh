@@ -1,12 +1,12 @@
 #!/bin/bash
 
 # Define start and end of the total range in hexadecimal
-START_HEX="2832ed749baba5ee4"
-END_HEX="2832ed751baba5ee4"
-CHUNK_SIZE=34359738368  # 2^35 in decimal
+START_HEX="2000000000"
+END_HEX="3fffffffff"
+CHUNK_SIZE=17179869184  # 2^35 in decimal
 
 # Define target address
-target_address="13zb1hQbWVsc2S7ZTZnP2G4undNNpdh5so"
+target_address="1HBtApAFA9B2YZw3G2YKSMCtb3dVnjuNe2"
 
 # Function to convert hex to decimal using bc
 hex_to_dec() {
