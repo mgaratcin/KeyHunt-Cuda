@@ -1,3 +1,5 @@
+#mattgarcin
+
 #!/bin/bash
 
 # Define start and end of the total range in hexadecimal
