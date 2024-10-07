@@ -3,12 +3,12 @@
 #!/bin/bash
 
 # Define start and end of the total range in hexadecimal
-START_HEX="2000000000"
-END_HEX="3fffffffff"
-CHUNK_SIZE=17179869184  # 2^35 in decimal
+START_HEX="2000000000000" :
+END_HEX="3ffffffffffff"
+CHUNK_SIZE=68719476736 # 2^36 in decimal 
 
 # Define target address
-target_address="1HBtApAFA9B2YZw3G2YKSMCtb3dVnjuNe2"
+target_address="1MEzite4ReNuWaL5Ds17ePKt2dCxWEofwk" 
 
 # Function to convert hex to decimal using bc
 hex_to_dec() {
@@ -64,7 +64,7 @@ while [ $(echo "$current_start < $end_dec" | bc) -eq 1 ]; do
   echo "Processing range: $range_start_hex to $range_end_hex"
 
   # Run the KeyHunt command
-  ./KeyHunt -t 0 -g --gpui 0 --gpux 4092,256 -m address --coin BTC --range ${range_start_hex}:${range_end_hex} ${target_address} > output.txt 2>&1
+  ./KeyHunt -t 0 -g --gpui 0,1,2,3 --gpux 4092,256,4092,256,4092,256,4092,256 -m address --coin BTC --range ${range_start_hex}:${range_end_hex} ${target_address} > output.txt 2>&1 
 
   # Ensure the command executed successfully
   if [ $? -ne 0 ]; then
