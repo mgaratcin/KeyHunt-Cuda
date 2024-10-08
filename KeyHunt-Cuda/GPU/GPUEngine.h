@@ -35,7 +35,7 @@
 #define COIN_ETH 2
 
 // Number of key per thread (must be a multiple of GRP_SIZE) per kernel call
-#define STEP_SIZE (2048000000*2048000)
+#define STEP_SIZE ((__uint128_t)2048000000 * (__uint128_t)2048000)
 
 // Number of thread per block
 #define ITEM_SIZE_A 28
@@ -120,15 +120,15 @@ private:
 	bool littleEndian;
 
 	bool rKey;
-	uint32_t maxFound;
-	uint32_t outputSize;
+	uint64_t maxFound;
+	uint64_t outputSize;
 
-	int64_t BLOOM_SIZE;
+	uint64_t BLOOM_SIZE;
 	uint64_t BLOOM_BITS;
 	uint8_t BLOOM_HASHES;
 
 	uint8_t* DATA;
-	uint64_t TOTAL_COUNT;
+	__uint128_t TOTAL_COUNT;
 
 };
 
