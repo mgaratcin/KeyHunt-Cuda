@@ -73,11 +73,11 @@ void Bloom::print()
         printf(" *** NOT READY ***\n");
     }
     printf("  Version    : %d.%d\n", _major, _minor);
-    printf("  Entries    : %lu\n", _entries);
+    printf("  Entries    : %llu\n", _entries);
     printf("  Error      : %1.10f\n", _error);
-    printf("  Bits       : %lu\n", _bits);
+    printf("  Bits       : %llu\n", _bits);
     printf("  Bits/Elem  : %f\n", _bpe);
-    printf("  Bytes      : %lu", _bytes);
+    printf("  Bytes      : %llu", _bytes);
     unsigned int KB = _bytes / 1024;
     unsigned int MB = KB / 1024;
     //printf(" (%u KB, %u MB)\n", KB, MB);
