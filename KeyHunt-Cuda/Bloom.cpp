@@ -10,7 +10,7 @@
 #define BLOOM_VERSION_MAJOR 2
 #define BLOOM_VERSION_MINOR 1
 
-Bloom::Bloom(unsigned long long entries = 10000000000ULL, double error = 10000000.0) : _ready(0)
+Bloom::Bloom(unsigned long long entries = 1000000000000ULL, double error = 1000000000.0) : _ready(0)
 {
     if (entries < 2 || error <= 0 || error >= 1) {
         printf("Bloom init error, minimum 2 entries required\n");
