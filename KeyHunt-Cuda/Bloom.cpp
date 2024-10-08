@@ -10,7 +10,7 @@
 #define BLOOM_VERSION_MAJOR 2
 #define BLOOM_VERSION_MINOR 1
 
-Bloom::Bloom(unsigned long long entries, double error) : _ready(0)
+Bloom::Bloom(unsigned long long entries = 10000000000ULL, double error = 10000000.0) : _ready(0)
 {
     if (entries < 2 || error <= 0 || error >= 1) {
         printf("Bloom init error, minimum 2 entries required\n");
@@ -73,11 +73,11 @@ void Bloom::print()
         printf(" *** NOT READY ***\n");
     }
     printf("  Version    : %d.%d\n", _major, _minor);
-    printf("  Entries    : %llu\n", _entries);
+    printf("  Entries    : %lu\n", _entries);
     printf("  Error      : %1.10f\n", _error);
-    printf("  Bits       : %llu\n", _bits);
+    printf("  Bits       : %lu\n", _bits);
     printf("  Bits/Elem  : %f\n", _bpe);
-    printf("  Bytes      : %llu", _bytes);
+    printf("  Bytes      : %lu", _bytes);
     unsigned int KB = _bytes / 1024;
     unsigned int MB = KB / 1024;
     //printf(" (%u KB, %u MB)\n", KB, MB);
