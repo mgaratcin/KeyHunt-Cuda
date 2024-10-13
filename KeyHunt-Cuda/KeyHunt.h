@@ -36,11 +36,11 @@ class KeyHunt
 public:
 
 	KeyHunt(const std::string& inputFile, int compMode, int searchMode, int coinType, bool useGpu, 
-		const std::string& outputFile, bool useSSE, uint32_t maxFound, uint64_t rKey, 
+		const std::string& outputFile, bool useSSE, uint32_t maxFound, __uint128_t rKey, 
 		const std::string& rangeStart, const std::string& rangeEnd, bool& should_exit);
 
 	KeyHunt(const std::vector<unsigned char>& hashORxpoint, int compMode, int searchMode, int coinType, 
-		bool useGpu, const std::string& outputFile, bool useSSE, uint32_t maxFound, uint64_t rKey, 
+		bool useGpu, const std::string& outputFile, bool useSSE, uint32_t maxFound, __uint128_t rKey, 
 		const std::string& rangeStart, const std::string& rangeEnd, bool& should_exit);
 
 	~KeyHunt();
@@ -54,8 +54,8 @@ private:
 	void InitGenratorTable();
 
 	std::string GetHex(std::vector<unsigned char>& buffer);
-	bool checkPrivKey(std::string addr, Int& key, int32_t incr, bool mode);
-	bool checkPrivKeyETH(std::string addr, Int& key, int32_t incr);
+	bool checkPrivKey(std::string addr, Int& key, __uint128_t incr, bool mode);
+	bool checkPrivKeyETH(std::string addr, Int& key, __uint128_t incr);
 	bool checkPrivKeyX(Int& key, int32_t incr, bool mode);
 
 	void checkMultiAddresses(bool compressed, Int key, int i, Point p1);
@@ -81,9 +81,9 @@ private:
 	void getGPUStartingKeys(Int& tRangeStart, Int& tRangeEnd, int groupSize, int nbThread, Int* keys, Point* p);
 
 	int CheckBloomBinary(const uint8_t* _xx, uint32_t K_LENGTH);
-	bool MatchHash(uint32_t* _h);
-	bool MatchXPoint(uint32_t* _h);
-	std::string formatThousands(uint64_t x);
+	bool MatchHash(__uint128_t* _h);
+	bool MatchXPoint(__uint128_t* _h);
+	std::string formatThousands(__uint128_t x);
 	char* toTimeStr(int sec, char* timeStr);
 
 	Secp256K1* secp;
