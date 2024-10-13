@@ -35,7 +35,7 @@
 #define COIN_ETH 2
 
 // Number of key per thread (must be a multiple of GRP_SIZE) per kernel call
-#define STEP_SIZE ((__uint128_t)2048000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 * (__uint128_t)2048000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000)
+#define STEP_SIZE ((__uint128_t)2048000000000000000000000 * (__uint128_t)2048000000000)
 
 // Number of thread per block
 #define ITEM_SIZE_A 28
@@ -45,9 +45,9 @@
 #define ITEM_SIZE_X32 (ITEM_SIZE_X/4)
 
 typedef struct {
-	__uint128_t thId;
-	__uint128_t  incr;
-	__uint128_t* hash;
+	uint32_t thId;
+	int16_t  incr;
+	uint8_t* hash;
 	bool mode;
 } ITEM;
 
@@ -57,11 +57,11 @@ class GPUEngine
 public:
 
 	GPUEngine(Secp256K1* secp, int nbThreadGroup, int nbThreadPerGroup, int gpuId, uint32_t maxFound, 
-		int searchMode, int compMode, int coinType, __uint128_t BLOOM_SIZE, __uint128_t BLOOM_BITS, 
-		__uint128_t BLOOM_HASHES, const __uint128_t* BLOOM_DATA, __uint128_t* DATA, uint64_t TOTAL_COUNT, bool rKey);
+		int searchMode, int compMode, int coinType, int64_t BLOOM_SIZE, uint64_t BLOOM_BITS, 
+		uint8_t BLOOM_HASHES, const uint8_t* BLOOM_DATA, uint8_t* DATA, uint64_t TOTAL_COUNT, bool rKey);
 
 	GPUEngine(Secp256K1* secp, int nbThreadGroup, int nbThreadPerGroup, int gpuId, uint32_t maxFound, 
-		int searchMode, int compMode, int coinType, const __uint128_t* hashORxpoint, bool rKey);
+		int searchMode, int compMode, int coinType, const uint32_t* hashORxpoint, bool rKey);
 
 	~GPUEngine();
 
@@ -94,24 +94,24 @@ private:
 	int nbThread;
 	int nbThreadPerGroup;
 
-	__uint128_t* inputHashORxpoint;
-	__uint128_t* inputHashORxpointPinned;
+	uint32_t* inputHashORxpoint;
+	uint32_t* inputHashORxpointPinned;
 
 	//uint8_t *bloomLookUp;
-	__uint128_t* inputBloomLookUp;
-	__uint128_t* inputBloomLookUpPinned;
+	uint8_t* inputBloomLookUp;
+	uint8_t* inputBloomLookUpPinned;
 
-	__uint128_t* inputKey;
-	__uint128_t* inputKeyPinned;
+	uint64_t* inputKey;
+	uint64_t* inputKeyPinned;
 
-	__uint128_t* outputBuffer;
-	__uint128_t* outputBufferPinned;
+	uint32_t* outputBuffer;
+	uint32_t* outputBufferPinned;
 
-	__uint128_t* __2Gnx;
-	__uint128_t* __2Gny;
+	uint64_t* __2Gnx;
+	uint64_t* __2Gny;
 
-	__uint128_t* _Gx;
-	__uint128_t* _Gy;
+	uint64_t* _Gx;
+	uint64_t* _Gy;
 
 	bool initialised;
 	uint32_t compMode;
@@ -121,13 +121,13 @@ private:
 
 	bool rKey;
 	uint64_t maxFound;
-	__uint128_t outputSize;
+	uint64_t outputSize;
 
-	__uint128_t BLOOM_SIZE;
-	__uint128_t BLOOM_BITS;
-	__uint128_t BLOOM_HASHES;
+	uint64_t BLOOM_SIZE;
+	uint64_t BLOOM_BITS;
+	uint8_t BLOOM_HASHES;
 
-	__uint128_t* DATA;
+	uint8_t* DATA;
 	__uint128_t TOTAL_COUNT;
 
 };
