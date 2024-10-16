@@ -986,9 +986,9 @@ void KeyHunt::FindKeyGPU(TH_PARAM * ph)
 
 		if (ok) {
 			for (int i = 0; i < nbThread; i++) {
-				keys[i].Add((uint64_t)STEP_SIZE);
+				keys[i].Add((__uint128_t)STEP_SIZE);
 			}
-			counters[thId] += (uint64_t)(STEP_SIZE)*nbThread; // Point
+			counters[thId] += (__uint128_t)(STEP_SIZE)*nbThread; // Point
 		}
 
 	}
