@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Define start and end of the total range in hexadecimal
-START_HEX="693c041e000000000"
+START_HEX="695c041e000000000"
 END_HEX="7ffffffffffffffff"
 CHUNK_SIZE=1099511627776 # 2^40 in decimal
 
