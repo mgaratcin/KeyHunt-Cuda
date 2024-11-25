@@ -1,7 +1,7 @@
 #---------------------------------------------------------------------
-# Makefile for KeyHunt
+# Makefile for KeyHunt-Cuda
 #
-# Author : Jean-Luc PONS
+# Author : MGaratcin
 
 SRC = Base58.cpp IntGroup.cpp Main.cpp Bloom.cpp Random.cpp \
       Timer.cpp Int.cpp IntMod.cpp Point.cpp SECP256K1.cpp \
@@ -42,14 +42,14 @@ ifdef gpu
 ifdef debug
 CXXFLAGS   = -DWITHGPU -m64  -mssse3 -Wno-write-strings -g -I. -I$(CUDA)/include
 else
-CXXFLAGS   =  -DWITHGPU -m64 -mssse3 -Wno-write-strings -O2 -I. -I$(CUDA)/include
+CXXFLAGS   =  -DWITHGPU -m64 -mssse3 -Wno-write-strings -O3 -I. -I$(CUDA)/include
 endif
 LFLAGS     = -lgmp -lpthread -L$(CUDA)/lib64 -lcudart
 else
 ifdef debug
 CXXFLAGS   = -m64 -mssse3 -Wno-write-strings -g -I. -I$(CUDA)/include
 else
-CXXFLAGS   =  -m64 -mssse3 -Wno-write-strings -O2 -I. -I$(CUDA)/include
+CXXFLAGS   =  -m64 -mssse3 -Wno-write-strings -O3 -I. -I$(CUDA)/include
 endif
 LFLAGS     = -lgmp -lpthread
 endif
