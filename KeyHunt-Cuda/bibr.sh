@@ -11,7 +11,7 @@ NUM_GPUS=$1
 # Define start and end of the total range in hexadecimal
 START_HEX="41001813FFFFFFFFF"
 END_HEX="6ffffffffffffffff"
-CHUNK_SIZE=$(echo "2^35" | bc) # 17179869184*2
+CHUNK_SIZE=$(echo "2^34" | bc) # 17179869184
 
 # Timeout duration in seconds
 TIMEOUT_DURATION=20
@@ -95,7 +95,7 @@ while true; do
     echo "${range_start_hex}:${range_end_hex}" >> complete.txt
 
     # Run the KeyHunt command with a timeout
-    timeout $TIMEOUT_DURATION ./KeyHunt -t 0 -g --gpui $i --gpux 4092,256 \
+    timeout $TIMEOUT_DURATION ./KeyHunt -t 0 -g --gpui $i --gpux 128,128 \
     -m address --coin BTC --range ${range_start_hex}:${range_end_hex} \
     ${target_address} > output_${i}.txt 2>&1 &
   done
