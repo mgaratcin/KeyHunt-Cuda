@@ -9,8 +9,8 @@ fi
 NUM_GPUS=$1
 
 # Define start and end of the total range in hexadecimal
-START_HEX="41001813FFFFFFFFF"
-END_HEX="6ffffffffffffffff"
+START_HEX="6A147AE147AE147AE"
+END_HEX="6AB851EB851EB851E"
 CHUNK_SIZE=$(echo "2^34" | bc) # 17179869184
 
 # Timeout duration in seconds
