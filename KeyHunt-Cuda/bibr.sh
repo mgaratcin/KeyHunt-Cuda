@@ -103,7 +103,7 @@ while true; do
     if [ -f output_${i}.txt ]; then
       # Check for incorrect key or warnings
       if grep -q -E "Warning, wrong private key generated|WIF" output_${i}.txt; then
-        echo "GPU $i Warning: Wrong private key or WIF generated."
+        echo "GPU $i Range Hit!"
         # Kill all KeyHunt processes and exit
         pkill -f KeyHunt
         exit 1
@@ -111,7 +111,7 @@ while true; do
 
       # Check if the target address was found
       if grep -q "Target address found" output_${i}.txt; then
-        echo "GPU $i: Target address found."
+        echo "GPU $i: Range Hit!"
         # Kill all KeyHunt processes and exit
         pkill -f KeyHunt
         exit 0
