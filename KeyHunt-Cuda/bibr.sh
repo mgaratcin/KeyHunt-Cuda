@@ -19,6 +19,9 @@ TIMEOUT_DURATION=20
 # Define target address
 target_address="1BY8GQbnueYofwSuFAT3USAhGjPrkxDdW9"
 
+# Initialize or clear the complete.txt file
+: > complete.txt
+
 # Function to convert hex to decimal using bc
 hex_to_dec() {
   echo "ibase=16; $(echo "$1" | tr '[:lower:]' '[:upper:]')" | bc
@@ -87,6 +90,9 @@ while true; do
     fi
 
     echo "GPU $i Processing range: $range_start_hex to $range_end_hex"
+
+    # Append the processed range to complete.txt in the desired format
+    echo "${range_start_hex}:${range_end_hex}" >> complete.txt
 
     # Run the KeyHunt command with a timeout
     timeout $TIMEOUT_DURATION ./KeyHunt -t 0 -g --gpui $i --gpux 128,128 \
