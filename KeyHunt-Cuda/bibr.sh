@@ -9,7 +9,7 @@ fi
 NUM_GPUS=$1
 
 # Define start and end of the total range in hexadecimal
-START_HEX="4000446C00000000"
+START_HEX="41000000000000000"
 END_HEX="6ffffffffffffffff"
 CHUNK_SIZE=$(echo "2^34" | bc) # 17179869184
 
