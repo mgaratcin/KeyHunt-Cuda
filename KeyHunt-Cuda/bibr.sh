@@ -9,7 +9,7 @@ fi
 NUM_GPUS=$1
 
 # Define start and end of the total range in hexadecimal
-START_HEX="41000000000000000"
+START_HEX="41001813FFFFFFFFF"
 END_HEX="6ffffffffffffffff"
 CHUNK_SIZE=$(echo "2^34" | bc) # 17179869184
 
@@ -49,19 +49,29 @@ if [ "$(echo "$start_dec >= $end_dec" | bc)" -eq 1 ]; then
   exit 1
 fi
 
-current_start="$start_dec"
+# Compute total range
+total_range=$(echo "$end_dec - $start_dec + 1" | bc)
 
-while [ "$(echo "$current_start <= $end_dec" | bc)" -eq 1 ]; do
-  # Start processes for NUM_GPUS or remaining chunks
+# Compute maximum random offset
+max_random=$(echo "$total_range - $CHUNK_SIZE" | bc)
+
+if [ "$(echo "$max_random <= 0" | bc)" -eq 1 ]; then
+  echo "Error: CHUNK_SIZE is larger than the total range."
+  exit 1
+fi
+
+while true; do
+  # Start processes for NUM_GPUS
   for (( i=0; i<NUM_GPUS; i++ ))
   do
-    if [ "$(echo "$current_start > $end_dec" | bc)" -eq 1 ]; then
-      break
-    fi
+    # Generate random offset using Python's secrets module
+    range_offset=$(python3 -c "import secrets; print(secrets.randbelow($max_random))")
 
     # Calculate range start and end using bc
-    range_start_dec="$current_start"
+    range_start_dec=$(echo "$start_dec + $range_offset" | bc)
     range_end_dec=$(echo "$range_start_dec + $CHUNK_SIZE - 1" | bc)
+
+    # Ensure range_end_dec does not exceed end_dec
     if [ "$(echo "$range_end_dec > $end_dec" | bc)" -eq 1 ]; then
       range_end_dec="$end_dec"
     fi
@@ -82,9 +92,6 @@ while [ "$(echo "$current_start <= $end_dec" | bc)" -eq 1 ]; do
     timeout $TIMEOUT_DURATION ./KeyHunt -t 0 -g --gpui $i --gpux 128,128 \
     -m address --coin BTC --range ${range_start_hex}:${range_end_hex} \
     ${target_address} > output_${i}.txt 2>&1 &
-
-    # Update current_start for next chunk using bc
-    current_start=$(echo "$range_end_dec + 1" | bc)
   done
 
   # Wait for all processes to finish
