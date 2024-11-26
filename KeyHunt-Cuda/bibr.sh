@@ -65,33 +65,34 @@ fi
 
 while true; do
   # Start processes for NUM_GPUS
-  for (( i=0; i<NUM_GPUS; i++ ))
-  do
-    # Generate random offset using Python's secrets module
-    range_offset=$(python3 -c "import secrets; print(secrets.randbelow($max_random))")
+  for (( i=0; i<NUM_GPUS; i++ )); do
+    while true; do
+      # Generate random offset using Python's secrets module
+      range_offset=$(python3 -c "import secrets; print(secrets.randbelow($max_random))")
 
-    # Calculate range start and end using bc
-    range_start_dec=$(echo "$start_dec + $range_offset" | bc)
-    range_end_dec=$(echo "$range_start_dec + $CHUNK_SIZE - 1" | bc)
+      # Calculate range start and end using bc
+      range_start_dec=$(echo "$start_dec + $range_offset" | bc)
+      range_end_dec=$(echo "$range_start_dec + $CHUNK_SIZE - 1" | bc)
 
-    # Ensure range_end_dec does not exceed end_dec
-    if [ "$(echo "$range_end_dec > $end_dec" | bc)" -eq 1 ]; then
-      range_end_dec="$end_dec"
-    fi
+      # Ensure range_end_dec does not exceed end_dec
+      if [ "$(echo "$range_end_dec > $end_dec" | bc)" -eq 1 ]; then
+        range_end_dec="$end_dec"
+      fi
 
-    # Convert to hex
-    range_start_hex=$(dec_to_hex "$range_start_dec")
-    range_end_hex=$(dec_to_hex "$range_end_dec")
+      # Convert to hex
+      range_start_hex=$(dec_to_hex "$range_start_dec")
+      range_end_hex=$(dec_to_hex "$range_end_dec")
 
-    # Check for conversion errors
-    if [ -z "$range_start_hex" ] || [ -z "$range_end_hex" ]; then
-      echo "Error: Failed to convert decimal to hex. Please check the input values."
-      exit 1
-    fi
+      # Check if range is already in complete.txt
+      if ! grep -q "^${range_start_hex}:${range_end_hex}$" complete.txt; then
+        # If not already processed, break out of the loop
+        break
+      fi
+    done
 
     echo "GPU $i Processing range: $range_start_hex to $range_end_hex"
 
-    # Append the processed range to complete.txt in the desired format
+    # Append the processed range to complete.txt
     echo "${range_start_hex}:${range_end_hex}" >> complete.txt
 
     # Run the KeyHunt command with a timeout
@@ -104,8 +105,7 @@ while true; do
   wait
 
   # Check outputs for success or warnings
-  for (( i=0; i<NUM_GPUS; i++ ))
-  do
+  for (( i=0; i<NUM_GPUS; i++ )); do
     if [ -f output_${i}.txt ]; then
       # Check for incorrect key or warnings
       if grep -q -E "Warning, wrong private key generated|WIF" output_${i}.txt; then
