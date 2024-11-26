@@ -1,5 +1,5 @@
 #!/bin/bash
-
+ 
 # Check for number of GPUs argument
 if [ -z "$1" ]; then
   echo "Usage: $0 <number_of_gpus>"
