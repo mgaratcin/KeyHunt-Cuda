@@ -3,6 +3,8 @@ sudo apt-get update
 
 sudo apt-get install bc
 
+sudo apt install -y libgmp-dev
+
 chmod +x bash.sh
 
 ./bash.sh
