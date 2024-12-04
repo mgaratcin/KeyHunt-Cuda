@@ -96,7 +96,7 @@ while true; do
     echo "${range_start_hex}:${range_end_hex}" >> complete.txt
 
     # Run the KeyHunt command with a timeout
-    timeout $TIMEOUT_DURATION ./KeyHunt -t 0 -g --gpui $i --gpux 128,128 \
+    timeout $TIMEOUT_DURATION ./KeyHunt -t 0 -g --gpui $i --gpux 4092,256 \
     -m address --coin BTC --range ${range_start_hex}:${range_end_hex} \
     ${target_address} > output_${i}.txt 2>&1 &
   done
