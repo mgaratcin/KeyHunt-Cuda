@@ -16,9 +16,9 @@ KEYHUNT_PATH="./KeyHunt"  # Ensure this is the correct executable name
 OUTPUT_FILE="checked.txt"
 
 # Fixed prefixes and suffixes for the range
-FIXED_START_PREFIX="47cd"
+FIXED_START_PREFIX="47ce"
 FIXED_START_SUFFIX="0000000000"
-FIXED_END_PREFIX="47cd"
+FIXED_END_PREFIX="47ce"
 FIXED_END_SUFFIX="ffffffffff"  # Ensure this is exactly 10 'f's
 
 # Other KeyHunt parameters
