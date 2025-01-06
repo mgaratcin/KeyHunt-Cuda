@@ -16,9 +16,9 @@ KEYHUNT_PATH="./KeyHunt"  # Ensure this is the correct executable name
 OUTPUT_FILE="checked.txt"
 
 # Fixed prefixes and suffixes for the range
-FIXED_START_PREFIX="47ce"
+FIXED_START_PREFIX="47c"
 FIXED_START_SUFFIX="0000000000"
-FIXED_END_PREFIX="47ce"
+FIXED_END_PREFIX="47c"
 FIXED_END_SUFFIX="ffffffffff"  # Ensure this is exactly 10 'f's
 
 # Other KeyHunt parameters
@@ -30,7 +30,7 @@ GPUX="4092,256,4092,256,4092,256,4092,256,4092,256,4092,256,4092,256,4092,256"  
 THREADS=0  # Specify number of CPU threads as per your manual command
 
 # Number of variable hexadecimal characters in the range
-TARGET_RANGE_LENGTH=3
+TARGET_RANGE_LENGTH=4
 
 # Temporary file to store shuffled combinations
 SHUFFLED_COMBOS_FILE="shuffled_combos.tmp"
@@ -58,8 +58,8 @@ trap handle_interrupt SIGINT
 generate_combinations() {
     echo "[INFO] Generating all possible 5-character hexadecimal combinations..."
     # Using printf to format numbers from 0 to 1048575 (0xFFFFF) as 5-digit hex
-    for i in $(seq 0 4095); do
-        printf "%03x\n" "$i"
+    for i in $(seq 0 65536); do
+        printf "%04x\n" "$i"
     done
 }
 
